@@ -19,6 +19,8 @@
     "@opencanvas/write-editor": "workspace:*",
     "@opencanvas/interop-docx": "workspace:*",
     "@opencanvas/interop-ooxml": "workspace:*",
+    "@opencanvas/collab-sdk": "workspace:*",
+    "yjs": "^13.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "uuid": "^11.0.0"

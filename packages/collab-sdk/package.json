@@ -17,7 +17,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencanvas/core-types": "workspace:*"
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*",
+    "yjs": "^13.6.0",
+    "y-websocket": "^2.0.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

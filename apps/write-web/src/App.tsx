@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Operation } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
@@ -10,6 +10,8 @@ import { SAMPLE_OCD_FILES } from './sample-data/sample-prd.js';
 import { WriteSurface } from './components/WriteSurface.js';
 import { AiPanel } from './components/AiPanel.js';
 import { Toolbar } from './components/Toolbar.js';
+import { CollabBar } from './components/CollabBar.js';
+import { useCollaboration } from './hooks/useCollaboration.js';
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
 
@@ -29,6 +31,23 @@ export const App: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [collabEnabled, setCollabEnabled] = useState(false);
+
+  const collabUserName = useMemo(() => `User-${Math.random().toString(36).slice(2, 6)}`, []);
+  const collabDocId = useMemo(() => 'write-shared-doc', []);
+
+  const handleRemoteArtifactUpdate = useCallback((artifact: ArtifactEnvelope) => {
+    if (!adapterRef.current) return;
+    adapterRef.current = new WriteDocumentAdapter(artifact);
+    setBlocks(adapterRef.current.getEditableBlocks());
+  }, []);
+
+  const collab = useCollaboration(
+    collabDocId,
+    collabUserName,
+    collabEnabled,
+    handleRemoteArtifactUpdate,
+  );
 
   // Local text overrides for debounce: blockId -> current text typed by user
   const localTextRef = useRef<Map<string, string>>(new Map());
@@ -75,7 +94,10 @@ export const App: React.FC = () => {
     setIsLoaded(true);
     setIsDirty(false);
     setStatusMessage('Document loaded');
-  }, [refreshBlocks]);
+    if (collabEnabled) {
+      collab.initializeWithArtifact(artifact);
+    }
+  }, [refreshBlocks, collabEnabled, collab]);
 
   const handleSave = useCallback(() => {
     if (!adapterRef.current) return;
@@ -169,9 +191,12 @@ export const App: React.FC = () => {
     };
 
     adapterRef.current.applyOperation(op);
+    if (collabEnabled) {
+      collab.applyOperationToCollab(op);
+    }
     localTextRef.current.delete(blockId);
     setIsDirty(true);
-  }, []);
+  }, [collabEnabled, collab]);
 
   const handleBlockTextChange = useCallback(
     (blockId: string, newText: string) => {
@@ -245,11 +270,14 @@ export const App: React.FC = () => {
       };
 
       adapterRef.current.applyOperation(op);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(op);
+      }
       setIsDirty(true);
       pendingFocusRef.current = newBlockId;
       refreshBlocks();
     },
-    [refreshBlocks, commitBlockText],
+    [refreshBlocks, commitBlockText, collabEnabled, collab],
   );
 
   const handleToggleBlockType = useCallback(
@@ -293,6 +321,9 @@ export const App: React.FC = () => {
           },
         };
         adapterRef.current.applyOperation(op);
+        if (collabEnabled) {
+          collab.applyOperationToCollab(op);
+        }
         setIsDirty(true);
         pendingFocusRef.current = blockId;
         refreshBlocks();
@@ -355,12 +386,15 @@ export const App: React.FC = () => {
       };
 
       adapterRef.current.applyOperation(batchOp);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(batchOp);
+      }
       setIsDirty(true);
       setFocusedBlockId(newBlockId);
       pendingFocusRef.current = newBlockId;
       refreshBlocks();
     },
-    [refreshBlocks, commitBlockText],
+    [refreshBlocks, commitBlockText, collabEnabled, collab],
   );
 
   const handleRewrite = useCallback(
@@ -413,6 +447,11 @@ export const App: React.FC = () => {
       const data = await response.json();
 
       adapterRef.current.applyOperations(data.approvedOperations);
+      if (collabEnabled) {
+        for (const op of data.approvedOperations as Operation[]) {
+          collab.applyOperationToCollab(op);
+        }
+      }
 
       // Schedule focus restoration to the same block (or nearest)
       if (restoreFocusId) {
@@ -482,9 +521,29 @@ export const App: React.FC = () => {
         <button onClick={handleExportDocx} disabled={!isLoaded} style={{ padding: '4px 12px' }}>
           Export .docx
         </button>
+        <button
+          onClick={() => setCollabEnabled((v) => !v)}
+          style={{
+            padding: '4px 12px',
+            backgroundColor: collabEnabled ? '#4caf50' : undefined,
+            color: collabEnabled ? '#fff' : undefined,
+            border: collabEnabled ? '1px solid #388e3c' : undefined,
+          }}
+        >
+          {collabEnabled ? 'Collaborating' : 'Collaborate'}
+        </button>
         {isDirty && <span style={{ color: '#e67e22' }}>Unsaved changes</span>}
         {statusMessage && <span style={{ color: '#888' }}>{statusMessage}</span>}
       </div>
+
+      {/* Collaboration bar */}
+      {collabEnabled && (
+        <CollabBar
+          isConnected={collab.isConnected}
+          connectedUsers={collab.connectedUsers}
+          docId={collabDocId}
+        />
+      )}
 
       {/* Toolbar */}
       {isLoaded && (
