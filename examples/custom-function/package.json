@@ -1,0 +1,24 @@
+{
+  "name": "@opencanvas/example-custom-function",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example: building a custom AI function for OpenCanvas",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*",
+    "@opencanvas/function-sdk": "workspace:*",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.7.0"
+  }
+}
