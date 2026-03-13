@@ -4,6 +4,7 @@ import type { EditableBlock } from '@opencanvas/write-editor';
 interface ToolbarProps {
   focusedBlock: EditableBlock | null;
   onToggleBlockType: (blockId: string, newType: 'paragraph' | 'heading', level?: number) => void;
+  onToggleList: (blockId: string, listType: 'bullet' | 'ordered') => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -64,6 +65,7 @@ const toolbarBtnBase: React.CSSProperties = {
 export const Toolbar: React.FC<ToolbarProps> = ({
   focusedBlock,
   onToggleBlockType,
+  onToggleList,
   canUndo,
   canRedo,
   onUndo,
@@ -75,6 +77,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onToggleBlockType(focusedBlock.id, type, level);
     },
     [focusedBlock, onToggleBlockType],
+  );
+
+  const handleListClick = useCallback(
+    (listType: 'bullet' | 'ordered') => {
+      if (!focusedBlock) return;
+      onToggleList(focusedBlock.id, listType);
+    },
+    [focusedBlock, onToggleList],
   );
 
   const handleInlineFormat = useCallback((command: string) => {
@@ -185,6 +195,42 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Separator */}
       <span style={separator} />
 
+      {/* List buttons */}
+      {(() => {
+        const bulletActive = focusedBlock?.type === 'list_item' && focusedBlock.listType === 'bullet';
+        const orderedActive = focusedBlock?.type === 'list_item' && focusedBlock.listType === 'ordered';
+        const disabled = !focusedBlock;
+        return (
+          <>
+            <button
+              onClick={() => handleListClick('bullet')}
+              disabled={disabled}
+              style={getButtonStyle(disabled, bulletActive)}
+              title="Bullet List"
+              aria-label="Bullet List"
+              onMouseEnter={(e) => { if (!disabled && !bulletActive) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+              onMouseLeave={(e) => { if (!disabled && !bulletActive) { e.currentTarget.style.backgroundColor = 'transparent'; } }}
+            >
+              &#x2022; List
+            </button>
+            <button
+              onClick={() => handleListClick('ordered')}
+              disabled={disabled}
+              style={getButtonStyle(disabled, orderedActive)}
+              title="Numbered List"
+              aria-label="Numbered List"
+              onMouseEnter={(e) => { if (!disabled && !orderedActive) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+              onMouseLeave={(e) => { if (!disabled && !orderedActive) { e.currentTarget.style.backgroundColor = 'transparent'; } }}
+            >
+              1. List
+            </button>
+          </>
+        );
+      })()}
+
+      {/* Separator */}
+      <span style={separator} />
+
       {/* Inline formatting buttons */}
       {INLINE_FORMAT_OPTIONS.map((opt) => {
         const disabled = !focusedBlock;
@@ -211,7 +257,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {focusedBlock && (
         <span style={{ marginLeft: 'auto', color: '#9ca3af', fontSize: 11, fontFamily: "'Inter', system-ui, sans-serif" }}>
-          {focusedBlock.type === 'heading' ? `Heading ${focusedBlock.level ?? 1}` : 'Paragraph'}
+          {focusedBlock.type === 'heading'
+            ? `Heading ${focusedBlock.level ?? 1}`
+            : focusedBlock.type === 'list_item'
+              ? `${focusedBlock.listType === 'ordered' ? 'Numbered' : 'Bullet'} List`
+              : 'Paragraph'}
         </span>
       )}
     </div>

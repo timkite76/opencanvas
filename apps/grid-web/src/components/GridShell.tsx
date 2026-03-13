@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { GridNode, CellNode, WorksheetNode } from '@opencanvas/grid-model';
+import { columnIndexToLabel, parseCellAddress } from '@opencanvas/grid-model';
 import { FormulaBar } from './FormulaBar.js';
 import { WorksheetTabs } from './WorksheetTabs.js';
-import { VirtualGrid } from './VirtualGrid.js';
+import { VirtualGrid, normalizeRange } from './VirtualGrid.js';
+import type { SelectionRange } from './VirtualGrid.js';
 import { GridAiPanel } from './GridAiPanel.js';
 import type { WorkbookService } from '../services/workbook-service.js';
 
@@ -17,6 +19,61 @@ interface GridShellProps {
 }
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
+
+/** Get all addresses in a selection range */
+function getAddressesInRange(range: SelectionRange): string[] {
+  const { minCol, maxCol, minRow, maxRow } = normalizeRange(range);
+  const addresses: string[] = [];
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      addresses.push(`${columnIndexToLabel(col)}${row}`);
+    }
+  }
+  return addresses;
+}
+
+/** Check if a selection range covers more than one cell */
+function isMultiCellRange(range: SelectionRange): boolean {
+  return range.startCol !== range.endCol || range.startRow !== range.endRow;
+}
+
+/** Compute stats for numeric cells in the range */
+function computeRangeStats(
+  range: SelectionRange,
+  cellMap: Map<string, CellNode>,
+): { count: number; sum: number; average: number } | null {
+  const addresses = getAddressesInRange(range);
+  const numbers: number[] = [];
+
+  for (const addr of addresses) {
+    const cell = cellMap.get(addr.toUpperCase());
+    if (cell && cell.valueType === 'number' && cell.rawValue !== null) {
+      const num = Number(cell.rawValue);
+      if (!isNaN(num)) {
+        numbers.push(num);
+      }
+    }
+  }
+
+  if (numbers.length < 2) return null;
+
+  const sum = numbers.reduce((a, b) => a + b, 0);
+  return {
+    count: numbers.length,
+    sum,
+    average: sum / numbers.length,
+  };
+}
+
+/** Format a number for status bar display */
+function formatStat(val: number): string {
+  // Use toPrecision to avoid floating point artifacts, then clean up
+  const cleaned = parseFloat(val.toPrecision(10));
+  if (Number.isInteger(cleaned)) {
+    return cleaned.toLocaleString('en-US');
+  }
+  return cleaned.toLocaleString('en-US', { maximumFractionDigits: 6 });
+}
 
 export const GridShell: React.FC<GridShellProps> = ({
   artifact,
@@ -32,6 +89,7 @@ export const GridShell: React.FC<GridShellProps> = ({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiPreviewText, setAiPreviewText] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
 
   // Derive worksheets
   const worksheets = useMemo(() => {
@@ -63,6 +121,12 @@ export const GridShell: React.FC<GridShellProps> = ({
   const selectedCell = selectedCellId
     ? (artifact.nodes[selectedCellId] as CellNode | undefined)
     : undefined;
+
+  // Compute status bar stats
+  const rangeStats = useMemo(() => {
+    if (!selectionRange || !isMultiCellRange(selectionRange)) return null;
+    return computeRangeStats(selectionRange, cellMap);
+  }, [selectionRange, cellMap]);
 
   const handleCellSelect = useCallback((cellId: string | null, address: string) => {
     setSelectedCellId(cellId);
@@ -102,33 +166,137 @@ export const GridShell: React.FC<GridShellProps> = ({
     [artifact, selectedCellId, selectedAddress, cellMap, service, onArtifactChange],
   );
 
+  /** Apply a value change to a cell by address, returning the updated artifact */
+  const applyCellValueByAddress = useCallback(
+    (art: ArtifactEnvelope<GridNode>, address: string, value: string | number | boolean | null): ArtifactEnvelope<GridNode> => {
+      const cell = (() => {
+        for (const node of Object.values(art.nodes)) {
+          if (node.type === 'cell' && (node as CellNode).address.toUpperCase() === address.toUpperCase()) {
+            return node as CellNode;
+          }
+        }
+        return undefined;
+      })();
+      if (!cell) return art;
+      return service.applyCellValueChange(art, cell.id, value);
+    },
+    [service],
+  );
+
   const handleDeleteCell = useCallback(() => {
+    // If we have a multi-cell range, delete all cells in range
+    if (selectionRange && isMultiCellRange(selectionRange)) {
+      const addresses = getAddressesInRange(selectionRange);
+      let next = artifact;
+      for (const addr of addresses) {
+        next = applyCellValueByAddress(next, addr, null);
+      }
+      onArtifactChange(next);
+      return;
+    }
+
+    // Single cell delete
     if (!selectedCellId || !selectedAddress) return;
     const next = service.applyCellValueChange(artifact, selectedCellId, null);
     onArtifactChange(next);
-  }, [artifact, selectedCellId, selectedAddress, service, onArtifactChange]);
+  }, [artifact, selectedCellId, selectedAddress, service, onArtifactChange, selectionRange, applyCellValueByAddress]);
 
   const handleCopyCell = useCallback(() => {
+    // If we have a multi-cell range, copy as TSV
+    if (selectionRange && isMultiCellRange(selectionRange)) {
+      const { minCol, maxCol, minRow, maxRow } = normalizeRange(selectionRange);
+      const rowStrings: string[] = [];
+      for (let row = minRow; row <= maxRow; row++) {
+        const colValues: string[] = [];
+        for (let col = minCol; col <= maxCol; col++) {
+          const addr = `${columnIndexToLabel(col)}${row}`;
+          const cell = cellMap.get(addr.toUpperCase());
+          const value = cell?.formula ?? (cell?.rawValue === null ? '' : String(cell?.rawValue ?? ''));
+          colValues.push(value);
+        }
+        rowStrings.push(colValues.join('\t'));
+      }
+      const tsv = rowStrings.join('\n');
+      navigator.clipboard.writeText(tsv).catch(() => {
+        // Clipboard write failed silently
+      });
+      return;
+    }
+
+    // Single cell copy
     if (!selectedAddress) return;
     const cell = cellMap.get(selectedAddress.toUpperCase());
     const value = cell?.formula ?? (cell?.rawValue === null ? '' : String(cell?.rawValue ?? ''));
     navigator.clipboard.writeText(value).catch(() => {
       // Clipboard write failed silently
     });
-  }, [selectedAddress, cellMap]);
+  }, [selectedAddress, cellMap, selectionRange]);
 
   const handlePasteCell = useCallback(() => {
     navigator.clipboard
       .readText()
       .then((text) => {
-        if (text && selectedAddress) {
+        if (!text || !selectedAddress) return;
+
+        // Check if it's TSV data (has tabs or multiple lines)
+        const lines = text.split('\n');
+        const hasTabs = text.includes('\t');
+        const isMultiCell = lines.length > 1 || hasTabs;
+
+        if (isMultiCell) {
+          // Parse the selected address to get the starting position
+          let startPos: { col: number; row: number };
+          try {
+            const parsed = parseCellAddress(selectedAddress);
+            startPos = { col: parsed.columnIndex, row: parsed.row };
+          } catch {
+            return;
+          }
+
+          let next = artifact;
+          for (let rowOffset = 0; rowOffset < lines.length; rowOffset++) {
+            const line = lines[rowOffset];
+            if (line === undefined) continue;
+            const cols = line.split('\t');
+            for (let colOffset = 0; colOffset < cols.length; colOffset++) {
+              const cellValue = cols[colOffset] ?? '';
+              const targetCol = startPos.col + colOffset;
+              const targetRow = startPos.row + rowOffset;
+
+              if (activeWorksheet && targetCol < activeWorksheet.columnCount && targetRow <= activeWorksheet.rowCount) {
+                const targetAddr = `${columnIndexToLabel(targetCol)}${targetRow}`;
+                if (cellValue.startsWith('=')) {
+                  // Apply as formula
+                  const targetCell = (() => {
+                    for (const node of Object.values(next.nodes)) {
+                      if (node.type === 'cell' && (node as CellNode).address.toUpperCase() === targetAddr.toUpperCase()) {
+                        return node as CellNode;
+                      }
+                    }
+                    return undefined;
+                  })();
+                  if (targetCell) {
+                    next = service.applyFormulaChange(next, targetCell.id, cellValue);
+                  }
+                } else {
+                  // Parse as number if possible
+                  const numVal = Number(cellValue);
+                  const rawValue = cellValue === '' ? null : !isNaN(numVal) && cellValue.trim() !== '' ? numVal : cellValue;
+                  next = applyCellValueByAddress(next, targetAddr, rawValue);
+                }
+              }
+            }
+          }
+          onArtifactChange(next);
+        } else {
+          // Single value paste
           handleFormulaSubmit(text);
         }
       })
       .catch(() => {
         // Clipboard read failed silently
       });
-  }, [selectedAddress, handleFormulaSubmit]);
+  }, [selectedAddress, artifact, activeWorksheet, service, onArtifactChange, handleFormulaSubmit, applyCellValueByAddress]);
 
   // Global keyboard shortcuts for undo/redo/save
   useEffect(() => {
@@ -278,6 +446,8 @@ export const GridShell: React.FC<GridShellProps> = ({
           onDeleteCell={handleDeleteCell}
           onCopyCell={handleCopyCell}
           onPasteCell={handlePasteCell}
+          selectionRange={selectionRange}
+          onSelectionRangeChange={setSelectionRange}
         />
         <GridAiPanel
           selectedCellId={selectedCellId}
@@ -290,6 +460,39 @@ export const GridShell: React.FC<GridShellProps> = ({
           onReject={handleReject}
         />
       </div>
+      {/* Status bar - shows above worksheet tabs when range has numeric stats */}
+      {rangeStats && (
+        <div
+          style={{
+            height: 24,
+            background: '#f8f9fa',
+            borderTop: '1px solid #e2e2e2',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '0 16px',
+            gap: 20,
+            fontSize: 11,
+            color: '#5f6368',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            userSelect: 'none',
+            flexShrink: 0,
+          }}
+        >
+          <span>
+            <span style={{ fontWeight: 500, color: '#3c4043' }}>Count: </span>
+            {rangeStats.count}
+          </span>
+          <span>
+            <span style={{ fontWeight: 500, color: '#3c4043' }}>Sum: </span>
+            {formatStat(rangeStats.sum)}
+          </span>
+          <span>
+            <span style={{ fontWeight: 500, color: '#3c4043' }}>Average: </span>
+            {formatStat(rangeStats.average)}
+          </span>
+        </div>
+      )}
       <WorksheetTabs
         worksheets={worksheets}
         activeWorksheetId={effectiveWorksheetId}

@@ -10,12 +10,17 @@ import { SlideThumbnailPane } from './SlideThumbnailPane.js';
 import { SlideCanvas } from './SlideCanvas.js';
 import { ObjectToolbar } from './ObjectToolbar.js';
 import { DeckAiPanel } from './DeckAiPanel.js';
+import { PresentationMode } from './PresentationMode.js';
 
 interface DeckShellProps {
   artifact: ArtifactEnvelope<DeckNode>;
   service: PresentationService;
   onArtifactChange: (artifact: ArtifactEnvelope<DeckNode>) => void;
   onSave?: () => void;
+  isPresenting?: boolean;
+  presentFromFirst?: boolean;
+  onStartPresenting?: (fromFirst: boolean) => void;
+  onStopPresenting?: () => void;
 }
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
@@ -48,6 +53,10 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   service,
   onArtifactChange,
   onSave,
+  isPresenting,
+  presentFromFirst,
+  onStartPresenting,
+  onStopPresenting,
 }) => {
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -330,11 +339,25 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         onSave?.();
         return;
       }
+
+      // F5 - present from first slide
+      if (e.key === 'F5' && !e.shiftKey) {
+        e.preventDefault();
+        onStartPresenting?.(true);
+        return;
+      }
+
+      // Shift+F5 - present from current slide
+      if (e.key === 'F5' && e.shiftKey) {
+        e.preventDefault();
+        onStartPresenting?.(false);
+        return;
+      }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo, onSave]);
+  }, [handleUndo, handleRedo, onSave, onStartPresenting]);
 
   // AI handlers
   const handleAiTask = useCallback(async (taskType: string, parameters: Record<string, unknown>) => {
@@ -445,6 +468,22 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   const activeObjectIds = effectiveSlideId ? (slideIndex.objectIdsBySlideId[effectiveSlideId] ?? []) : [];
   const activeNotes = effectiveSlideId ? slideIndex.notesBySlideId[effectiveSlideId] : undefined;
   const notesText = activeNotes?.content.map((r) => r.text).join('') ?? '';
+
+  // Compute current slide index for presentation mode
+  const currentSlideIndex = effectiveSlideId ? slideIds.indexOf(effectiveSlideId) : 0;
+
+  if (isPresenting) {
+    const startIndex = presentFromFirst ? 0 : Math.max(0, currentSlideIndex);
+    return (
+      <PresentationMode
+        slideIds={slideIds}
+        nodes={artifact.nodes}
+        slideIndex={slideIndex}
+        startSlideIndex={startIndex}
+        onExit={() => onStopPresenting?.()}
+      />
+    );
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>

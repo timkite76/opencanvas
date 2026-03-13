@@ -38,6 +38,8 @@ export const App: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [collabEnabled, setCollabEnabled] = useState(false);
+  const [isPresenting, setIsPresenting] = useState(false);
+  const [presentFromFirst, setPresentFromFirst] = useState(false);
 
   const collabUserName = useMemo(() => `User-${Math.random().toString(36).slice(2, 6)}`, []);
   const collabDocId = useMemo(() => 'deck-shared-doc', []);
@@ -216,6 +218,29 @@ export const App: React.FC = () => {
         <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
 
         <button
+          onClick={() => {
+            setPresentFromFirst(true);
+            setIsPresenting(true);
+          }}
+          disabled={!artifact}
+          style={{
+            ...topBarBtnBase,
+            opacity: artifact ? 1 : 0.4,
+            cursor: artifact ? 'pointer' : 'not-allowed',
+            background: artifact ? '#f9ab00' : '#ffffff',
+            color: artifact ? '#ffffff' : '#3c4043',
+            borderColor: artifact ? '#f9ab00' : '#dadce0',
+          }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#e69500'; }}
+          onMouseLeave={(e) => { if (artifact) e.currentTarget.style.background = '#f9ab00'; }}
+        >
+          Present
+        </button>
+
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+
+        <button
           onClick={() => setCollabEnabled((v) => !v)}
           style={collabEnabled ? {
             ...topBarBtnBase,
@@ -274,6 +299,13 @@ export const App: React.FC = () => {
           service={service}
           onArtifactChange={handleArtifactChange}
           onSave={handleSave}
+          isPresenting={isPresenting}
+          presentFromFirst={presentFromFirst}
+          onStartPresenting={(fromFirst: boolean) => {
+            setPresentFromFirst(fromFirst);
+            setIsPresenting(true);
+          }}
+          onStopPresenting={() => setIsPresenting(false)}
         />
       ) : (
         <div

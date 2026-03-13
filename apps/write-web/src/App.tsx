@@ -460,6 +460,369 @@ export const App: React.FC = () => {
     [refreshBlocks, commitBlockText, collabEnabled, collab, undoRedo],
   );
 
+  const handleToggleList = useCallback(
+    (blockId: string, listType: 'bullet' | 'ordered') => {
+      if (!adapterRef.current) return;
+
+      // Flush any pending text for this block first
+      const existingTimer = debounceTimerRef.current.get(blockId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        debounceTimerRef.current.delete(blockId);
+        const pendingText = localTextRef.current.get(blockId);
+        if (pendingText !== undefined) {
+          commitBlockText(blockId, pendingText);
+        }
+      }
+
+      const artifact = adapterRef.current.getArtifact();
+      const currentNode = artifact.nodes[blockId] as
+        | { id: string; type: string; parentId?: string; content?: { text: string }[]; level?: number; listType?: string }
+        | undefined;
+      if (!currentNode || !currentNode.parentId) return;
+
+      const parentNode = artifact.nodes[currentNode.parentId];
+      if (!parentNode?.childIds) return;
+
+      // Snapshot for undo
+      undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+      const parentId = currentNode.parentId;
+      const currentIndex = parentNode.childIds.indexOf(blockId);
+      if (currentIndex === -1) return;
+
+      const text = currentNode.content?.map((r) => r.text).join('') ?? '';
+
+      if (currentNode.type === 'list_item') {
+        // Already a list item
+        const parentListNode = artifact.nodes[parentId] as { type: string; listType?: string; parentId?: string; childIds?: string[] } | undefined;
+
+        if (parentListNode?.type === 'list' && parentListNode.listType === listType) {
+          // Same type: unwrap back to paragraph
+          const grandparentId = parentListNode.parentId;
+          if (!grandparentId) return;
+          const grandparent = artifact.nodes[grandparentId];
+          if (!grandparent?.childIds) return;
+
+          const listIndexInGrandparent = grandparent.childIds.indexOf(parentId);
+          if (listIndexInGrandparent === -1) return;
+
+          const newBlockId = `para-${uuidv4().slice(0, 8)}`;
+          const ops: Operation[] = [];
+
+          // Delete the list_item from the list
+          ops.push({
+            operationId: uuidv4(),
+            type: 'delete_node',
+            artifactId: artifact.artifactId,
+            targetId: blockId,
+            actorType: 'user',
+            timestamp: new Date().toISOString(),
+          });
+
+          // If this was the only child, delete the list parent too
+          const siblings = parentListNode.childIds ?? [];
+          if (siblings.length <= 1) {
+            ops.push({
+              operationId: uuidv4(),
+              type: 'delete_node',
+              artifactId: artifact.artifactId,
+              targetId: parentId,
+              actorType: 'user',
+              timestamp: new Date().toISOString(),
+            });
+          }
+
+          // Insert the new paragraph in the grandparent at the list's position
+          ops.push({
+            operationId: uuidv4(),
+            type: 'insert_node',
+            artifactId: artifact.artifactId,
+            targetId: newBlockId,
+            actorType: 'user',
+            timestamp: new Date().toISOString(),
+            payload: {
+              node: {
+                id: newBlockId,
+                type: 'paragraph',
+                content: [{ text }],
+              } as import('@opencanvas/core-types').BaseNode,
+              parentId: grandparentId,
+              index: listIndexInGrandparent,
+            },
+          });
+
+          const batchOp: Operation = {
+            operationId: uuidv4(),
+            type: 'batch',
+            artifactId: artifact.artifactId,
+            targetId: blockId,
+            actorType: 'user',
+            timestamp: new Date().toISOString(),
+            payload: { operations: ops },
+          };
+
+          adapterRef.current.applyOperation(batchOp);
+          if (collabEnabled) {
+            collab.applyOperationToCollab(batchOp);
+          }
+          setIsDirty(true);
+          setFocusedBlockId(newBlockId);
+          pendingFocusRef.current = newBlockId;
+          refreshBlocks();
+          return;
+        }
+
+        // Different list type: change the parent list's listType
+        if (parentListNode?.type === 'list') {
+          const op: Operation = {
+            operationId: uuidv4(),
+            type: 'update_node',
+            artifactId: artifact.artifactId,
+            targetId: parentId,
+            actorType: 'user',
+            timestamp: new Date().toISOString(),
+            payload: {
+              patch: { listType },
+            },
+          };
+          adapterRef.current.applyOperation(op);
+          if (collabEnabled) {
+            collab.applyOperationToCollab(op);
+          }
+          setIsDirty(true);
+          pendingFocusRef.current = blockId;
+          refreshBlocks();
+          return;
+        }
+      }
+
+      // Current block is a paragraph or heading: wrap in a new list
+      const newListId = `list-${uuidv4().slice(0, 8)}`;
+      const newListItemId = `li-${uuidv4().slice(0, 8)}`;
+
+      const ops: Operation[] = [
+        // Delete the current block
+        {
+          operationId: uuidv4(),
+          type: 'delete_node',
+          artifactId: artifact.artifactId,
+          targetId: blockId,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+        },
+        // Insert a list node at the same position
+        {
+          operationId: uuidv4(),
+          type: 'insert_node',
+          artifactId: artifact.artifactId,
+          targetId: newListId,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+          payload: {
+            node: {
+              id: newListId,
+              type: 'list',
+              listType,
+            } as unknown as import('@opencanvas/core-types').BaseNode,
+            parentId,
+            index: currentIndex,
+          },
+        },
+        // Insert a list_item inside the list
+        {
+          operationId: uuidv4(),
+          type: 'insert_node',
+          artifactId: artifact.artifactId,
+          targetId: newListItemId,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+          payload: {
+            node: {
+              id: newListItemId,
+              type: 'list_item',
+              content: [{ text }],
+            } as unknown as import('@opencanvas/core-types').BaseNode,
+            parentId: newListId,
+            index: 0,
+          },
+        },
+      ];
+
+      const batchOp: Operation = {
+        operationId: uuidv4(),
+        type: 'batch',
+        artifactId: artifact.artifactId,
+        targetId: blockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: { operations: ops },
+      };
+
+      adapterRef.current.applyOperation(batchOp);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(batchOp);
+      }
+      setIsDirty(true);
+      setFocusedBlockId(newListItemId);
+      pendingFocusRef.current = newListItemId;
+      refreshBlocks();
+    },
+    [refreshBlocks, commitBlockText, collabEnabled, collab, undoRedo],
+  );
+
+  const handleInsertListItemAfter = useCallback(
+    (blockId: string, listType: 'bullet' | 'ordered') => {
+      if (!adapterRef.current) return;
+
+      // Flush any pending text for the current block first
+      const existingTimer = debounceTimerRef.current.get(blockId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        debounceTimerRef.current.delete(blockId);
+        const pendingText = localTextRef.current.get(blockId);
+        if (pendingText !== undefined) {
+          commitBlockText(blockId, pendingText);
+        }
+      }
+
+      // Snapshot for undo
+      undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+      const artifact = adapterRef.current.getArtifact();
+      const currentNode = artifact.nodes[blockId];
+      if (!currentNode || !currentNode.parentId) return;
+
+      const parentNode = artifact.nodes[currentNode.parentId];
+      if (!parentNode?.childIds) return;
+
+      const currentIndex = parentNode.childIds.indexOf(blockId);
+      if (currentIndex === -1) return;
+
+      const newListItemId = `li-${uuidv4().slice(0, 8)}`;
+
+      const op: Operation = {
+        operationId: uuidv4(),
+        type: 'insert_node',
+        artifactId: artifact.artifactId,
+        targetId: newListItemId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: {
+          node: {
+            id: newListItemId,
+            type: 'list_item',
+            content: [{ text: '' }],
+          } as unknown as import('@opencanvas/core-types').BaseNode,
+          parentId: currentNode.parentId,
+          index: currentIndex + 1,
+        },
+      };
+
+      adapterRef.current.applyOperation(op);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(op);
+      }
+      setIsDirty(true);
+      pendingFocusRef.current = newListItemId;
+      refreshBlocks();
+    },
+    [refreshBlocks, commitBlockText, collabEnabled, collab, undoRedo],
+  );
+
+  const handleConvertToParagraph = useCallback(
+    (blockId: string) => {
+      if (!adapterRef.current) return;
+
+      const artifact = adapterRef.current.getArtifact();
+      const currentNode = artifact.nodes[blockId] as
+        | { id: string; type: string; parentId?: string; content?: { text: string }[] }
+        | undefined;
+      if (!currentNode || !currentNode.parentId) return;
+
+      const listParent = artifact.nodes[currentNode.parentId] as
+        | { id: string; type: string; parentId?: string; childIds?: string[] }
+        | undefined;
+      if (!listParent || listParent.type !== 'list' || !listParent.parentId) return;
+
+      const grandparentId = listParent.parentId;
+      const grandparent = artifact.nodes[grandparentId];
+      if (!grandparent?.childIds) return;
+
+      const listIndexInGrandparent = grandparent.childIds.indexOf(listParent.id);
+      if (listIndexInGrandparent === -1) return;
+
+      // Snapshot for undo
+      undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+      const text = currentNode.content?.map((r) => r.text).join('') ?? '';
+      const newBlockId = `para-${uuidv4().slice(0, 8)}`;
+      const ops: Operation[] = [];
+
+      // Delete the list_item
+      ops.push({
+        operationId: uuidv4(),
+        type: 'delete_node',
+        artifactId: artifact.artifactId,
+        targetId: blockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+      });
+
+      // If this was the only child, delete the list parent too
+      const siblings = listParent.childIds ?? [];
+      if (siblings.length <= 1) {
+        ops.push({
+          operationId: uuidv4(),
+          type: 'delete_node',
+          artifactId: artifact.artifactId,
+          targetId: listParent.id,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Insert paragraph at the list's position in the grandparent
+      ops.push({
+        operationId: uuidv4(),
+        type: 'insert_node',
+        artifactId: artifact.artifactId,
+        targetId: newBlockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: {
+          node: {
+            id: newBlockId,
+            type: 'paragraph',
+            content: [{ text }],
+          } as import('@opencanvas/core-types').BaseNode,
+          parentId: grandparentId,
+          index: listIndexInGrandparent,
+        },
+      });
+
+      const batchOp: Operation = {
+        operationId: uuidv4(),
+        type: 'batch',
+        artifactId: artifact.artifactId,
+        targetId: blockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: { operations: ops },
+      };
+
+      adapterRef.current.applyOperation(batchOp);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(batchOp);
+      }
+      setIsDirty(true);
+      setFocusedBlockId(newBlockId);
+      pendingFocusRef.current = newBlockId;
+      refreshBlocks();
+    },
+    [refreshBlocks, collabEnabled, collab, undoRedo],
+  );
+
   const handleUndo = useCallback(() => {
     if (!adapterRef.current) return;
     // Save current state to redo stack
@@ -782,6 +1145,7 @@ export const App: React.FC = () => {
         <Toolbar
           focusedBlock={focusedBlock}
           onToggleBlockType={handleToggleBlockType}
+          onToggleList={handleToggleList}
           canUndo={undoRedo.canUndo}
           canRedo={undoRedo.canRedo}
           onUndo={handleUndo}
@@ -802,6 +1166,8 @@ export const App: React.FC = () => {
               onBlockFocus={setFocusedBlockId}
               onInsertBlockAfter={handleInsertBlockAfter}
               onDeleteBlock={handleDeleteBlock}
+              onInsertListItemAfter={handleInsertListItemAfter}
+              onConvertToParagraph={handleConvertToParagraph}
             />
           ) : (
             <div

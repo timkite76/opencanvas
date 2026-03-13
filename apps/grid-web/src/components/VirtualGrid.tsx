@@ -7,6 +7,13 @@ export interface GridPosition {
   row: number; // 1-based row number
 }
 
+export interface SelectionRange {
+  startCol: number; // 0-based, anchor
+  startRow: number; // 1-based, anchor
+  endCol: number;   // 0-based, moving end
+  endRow: number;   // 1-based, moving end
+}
+
 interface VirtualGridProps {
   worksheet: WorksheetNode;
   cells: Map<string, CellNode>;
@@ -18,6 +25,8 @@ interface VirtualGridProps {
   onDeleteCell: () => void;
   onCopyCell: () => void;
   onPasteCell: () => void;
+  selectionRange: SelectionRange | null;
+  onSelectionRangeChange: (range: SelectionRange | null) => void;
 }
 
 const COL_WIDTH = 100;
@@ -34,11 +43,14 @@ const COLORS = {
   rowOdd: '#f8f9fa',
   selectedBorder: '#1a73e8',
   selectedBg: '#e8f0fe',
+  rangeBg: '#e8f0fe',
   editBg: '#ffffff',
   textPrimary: '#202124',
   textError: '#d93025',
   textBoolean: '#1967d2',
   cornerBg: '#f8f9fa',
+  headerSelectedBg: '#d3e3fd',
+  headerSelectedText: '#1a73e8',
 };
 
 function addressFromPosition(pos: GridPosition): string {
@@ -58,9 +70,7 @@ function positionFromAddress(address: string): GridPosition | null {
 function formatDisplayNumber(val: string): string {
   const num = Number(val);
   if (isNaN(num)) return val;
-  // Remove floating point artifacts by limiting to 10 significant digits
   const cleaned = parseFloat(num.toPrecision(10));
-  // Format with commas for large integers, or clean decimal display
   if (Number.isInteger(cleaned) && Math.abs(cleaned) >= 1000) {
     return cleaned.toLocaleString('en-US');
   }
@@ -91,6 +101,32 @@ function getDisplayValue(cell: CellNode | undefined): string {
   return raw;
 }
 
+/** Get normalized min/max bounds from a selection range */
+export function normalizeRange(range: SelectionRange): {
+  minCol: number;
+  maxCol: number;
+  minRow: number;
+  maxRow: number;
+} {
+  return {
+    minCol: Math.min(range.startCol, range.endCol),
+    maxCol: Math.max(range.startCol, range.endCol),
+    minRow: Math.min(range.startRow, range.endRow),
+    maxRow: Math.max(range.startRow, range.endRow),
+  };
+}
+
+/** Check if a cell position is within a selection range */
+function isCellInRange(col: number, row: number, range: SelectionRange): boolean {
+  const { minCol, maxCol, minRow, maxRow } = normalizeRange(range);
+  return col >= minCol && col <= maxCol && row >= minRow && row <= maxRow;
+}
+
+/** Check if a range is multi-cell (not a single cell) */
+function isMultiCellRange(range: SelectionRange): boolean {
+  return range.startCol !== range.endCol || range.startRow !== range.endRow;
+}
+
 export const VirtualGrid: React.FC<VirtualGridProps> = ({
   worksheet,
   cells,
@@ -102,11 +138,14 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
   onDeleteCell,
   onCopyCell,
   onPasteCell,
+  selectionRange,
+  onSelectionRangeChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const [editingAddress, setEditingAddress] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
 
   const totalCols = worksheet.columnCount;
   const totalRows = worksheet.rowCount;
@@ -183,7 +222,6 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
   useEffect(() => {
     if (editingAddress && editInputRef.current) {
       editInputRef.current.focus();
-      // Move cursor to end
       const len = editInputRef.current.value.length;
       editInputRef.current.setSelectionRange(len, len);
     }
@@ -216,25 +254,89 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
     }
   }, [selectedPosition]);
 
-  const handleCellClick = useCallback(
-    (address: string) => {
+  // Mouse drag support: track mouse move while dragging
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current || !selectionRange) return;
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+
+      const x = e.clientX - rect.left + container.scrollLeft - HEADER_WIDTH;
+      const y = e.clientY - rect.top + container.scrollTop - HEADER_HEIGHT;
+
+      const col = Math.max(0, Math.min(Math.floor(x / COL_WIDTH), totalCols - 1));
+      const row = Math.max(1, Math.min(Math.floor(y / ROW_HEIGHT) + 1, totalRows));
+
+      if (col !== selectionRange.endCol || row !== selectionRange.endRow) {
+        onSelectionRangeChange({
+          ...selectionRange,
+          endCol: col,
+          endRow: row,
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, selectionRange, totalCols, totalRows, onSelectionRangeChange]);
+
+  const handleCellMouseDown = useCallback(
+    (address: string, e: React.MouseEvent) => {
       // If we were editing a different cell, commit first
       if (editingAddress && editingAddress !== address) {
         commitEdit(false);
       }
-      const cell = cells.get(address);
-      onCellSelect(cell?.id ?? null, address);
+
+      const pos = positionFromAddress(address);
+      if (!pos) return;
+
+      if (e.shiftKey && selectedPosition) {
+        // Shift+Click: extend selection from anchor to this cell
+        onSelectionRangeChange({
+          startCol: selectedPosition.col,
+          startRow: selectedPosition.row,
+          endCol: pos.col,
+          endRow: pos.row,
+        });
+      } else {
+        // Normal click: set single-cell selection and start potential drag
+        const cell = cells.get(address);
+        onCellSelect(cell?.id ?? null, address);
+        onSelectionRangeChange({
+          startCol: pos.col,
+          startRow: pos.row,
+          endCol: pos.col,
+          endRow: pos.row,
+        });
+        setIsDragging(true);
+      }
+
       containerRef.current?.focus();
     },
-    [cells, onCellSelect, editingAddress, commitEdit],
+    [cells, onCellSelect, editingAddress, commitEdit, selectedPosition, onSelectionRangeChange],
   );
 
   const handleCellDoubleClick = useCallback(
     (address: string) => {
+      // Reset range on double click (entering edit mode)
+      const pos = positionFromAddress(address);
+      if (pos) {
+        onSelectionRangeChange(null);
+      }
       startEditing(address);
       onCellDoubleClick(address);
     },
-    [startEditing, onCellDoubleClick],
+    [startEditing, onCellDoubleClick, onSelectionRangeChange],
   );
 
   const handleKeyDown = useCallback(
@@ -244,14 +346,14 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
 
       const isMod = e.metaKey || e.ctrlKey;
 
-      // Ctrl/Cmd+C: copy cell
+      // Ctrl/Cmd+C: copy
       if (isMod && e.key === 'c') {
         e.preventDefault();
         onCopyCell();
         return;
       }
 
-      // Ctrl/Cmd+V: paste cell
+      // Ctrl/Cmd+V: paste
       if (isMod && e.key === 'v') {
         e.preventDefault();
         onPasteCell();
@@ -266,25 +368,49 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
         case 'ArrowUp': {
           e.preventDefault();
           const nextRow = Math.max(row - 1, 1);
-          selectCell({ col, row: nextRow });
+          if (e.shiftKey) {
+            const range = selectionRange ?? { startCol: col, startRow: row, endCol: col, endRow: row };
+            onSelectionRangeChange({ ...range, endRow: Math.max(range.endRow - 1, 1) });
+          } else {
+            selectCell({ col, row: nextRow });
+            onSelectionRangeChange(null);
+          }
           break;
         }
         case 'ArrowDown': {
           e.preventDefault();
           const nextRow = Math.min(row + 1, totalRows);
-          selectCell({ col, row: nextRow });
+          if (e.shiftKey) {
+            const range = selectionRange ?? { startCol: col, startRow: row, endCol: col, endRow: row };
+            onSelectionRangeChange({ ...range, endRow: Math.min(range.endRow + 1, totalRows) });
+          } else {
+            selectCell({ col, row: nextRow });
+            onSelectionRangeChange(null);
+          }
           break;
         }
         case 'ArrowLeft': {
           e.preventDefault();
           const nextCol = Math.max(col - 1, 0);
-          selectCell({ col: nextCol, row });
+          if (e.shiftKey) {
+            const range = selectionRange ?? { startCol: col, startRow: row, endCol: col, endRow: row };
+            onSelectionRangeChange({ ...range, endCol: Math.max(range.endCol - 1, 0) });
+          } else {
+            selectCell({ col: nextCol, row });
+            onSelectionRangeChange(null);
+          }
           break;
         }
         case 'ArrowRight': {
           e.preventDefault();
           const nextCol = Math.min(col + 1, totalCols - 1);
-          selectCell({ col: nextCol, row });
+          if (e.shiftKey) {
+            const range = selectionRange ?? { startCol: col, startRow: row, endCol: col, endRow: row };
+            onSelectionRangeChange({ ...range, endCol: Math.min(range.endCol + 1, totalCols - 1) });
+          } else {
+            selectCell({ col: nextCol, row });
+            onSelectionRangeChange(null);
+          }
           break;
         }
         case 'Tab': {
@@ -296,6 +422,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             const nextCol = Math.min(col + 1, totalCols - 1);
             selectCell({ col: nextCol, row });
           }
+          onSelectionRangeChange(null);
           break;
         }
         case 'Enter': {
@@ -307,16 +434,17 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             const nextRow = Math.min(row + 1, totalRows);
             selectCell({ col, row: nextRow });
           }
+          onSelectionRangeChange(null);
           break;
         }
         case 'Home': {
           e.preventDefault();
           selectCell({ col: 0, row });
+          onSelectionRangeChange(null);
           break;
         }
         case 'End': {
           e.preventDefault();
-          // Go to last column that has data in this row, or last column
           let lastDataCol = 0;
           for (let c = totalCols - 1; c >= 0; c--) {
             const addr = `${columnIndexToLabel(c)}${row}`;
@@ -327,17 +455,27 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             }
           }
           selectCell({ col: Math.max(lastDataCol, col), row });
+          onSelectionRangeChange(null);
           break;
         }
         case 'F2': {
           e.preventDefault();
           startEditing(addressFromPosition({ col, row }));
+          onSelectionRangeChange(null);
           break;
         }
         case 'Delete':
         case 'Backspace': {
           e.preventDefault();
           onDeleteCell();
+          break;
+        }
+        case 'Escape': {
+          // Clear multi-cell selection back to single cell
+          if (selectionRange && isMultiCellRange(selectionRange)) {
+            e.preventDefault();
+            onSelectionRangeChange(null);
+          }
           break;
         }
         default: {
@@ -348,6 +486,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             !e.altKey
           ) {
             e.preventDefault();
+            onSelectionRangeChange(null);
             startEditing(addressFromPosition({ col, row }), e.key);
           }
           break;
@@ -365,6 +504,8 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
       onDeleteCell,
       onCopyCell,
       onPasteCell,
+      selectionRange,
+      onSelectionRangeChange,
     ],
   );
 
@@ -396,9 +537,28 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
   const totalWidth = HEADER_WIDTH + totalCols * COL_WIDTH;
   const totalHeight = HEADER_HEIGHT + totalRows * ROW_HEIGHT;
 
-  // Determine if a column header is in the selected column
-  const selectedCol = selectedPosition ? columnIndexToLabel(selectedPosition.col) : null;
-  const selectedRow = selectedPosition ? selectedPosition.row : null;
+  // Build sets for header highlighting
+  const highlightedCols = useMemo(() => {
+    const set = new Set<number>();
+    if (selectionRange) {
+      const { minCol, maxCol } = normalizeRange(selectionRange);
+      for (let c = minCol; c <= maxCol; c++) set.add(c);
+    } else if (selectedPosition) {
+      set.add(selectedPosition.col);
+    }
+    return set;
+  }, [selectionRange, selectedPosition]);
+
+  const highlightedRows = useMemo(() => {
+    const set = new Set<number>();
+    if (selectionRange) {
+      const { minRow, maxRow } = normalizeRange(selectionRange);
+      for (let r = minRow; r <= maxRow; r++) set.add(r);
+    } else if (selectedPosition) {
+      set.add(selectedPosition.row);
+    }
+    return set;
+  }, [selectionRange, selectedPosition]);
 
   return (
     <div
@@ -443,15 +603,15 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
           }}
         >
           <div style={{ position: 'absolute', left: HEADER_WIDTH, top: 0, display: 'flex' }}>
-            {columns.map((col) => {
-              const isColSelected = col === selectedCol;
+            {columns.map((col, colIdx) => {
+              const isColHighlighted = highlightedCols.has(colIdx);
               return (
                 <div
                   key={col}
                   style={{
                     width: COL_WIDTH,
                     height: HEADER_HEIGHT,
-                    background: isColSelected ? '#d3e3fd' : COLORS.headerBg,
+                    background: isColHighlighted ? COLORS.headerSelectedBg : COLORS.headerBg,
                     borderBottom: `1px solid ${COLORS.headerBorderBottom}`,
                     borderRight: `1px solid ${COLORS.cellBorder}`,
                     display: 'flex',
@@ -459,7 +619,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                     justifyContent: 'center',
                     fontWeight: 500,
                     fontSize: 11,
-                    color: isColSelected ? '#1a73e8' : COLORS.headerText,
+                    color: isColHighlighted ? COLORS.headerSelectedText : COLORS.headerText,
                     boxSizing: 'border-box',
                     userSelect: 'none',
                     letterSpacing: '0.02em',
@@ -483,7 +643,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
           }}
         >
           {rows.map((row) => {
-            const isRowSelected = row === selectedRow;
+            const isRowHighlighted = highlightedRows.has(row);
             return (
               <div
                 key={row}
@@ -493,7 +653,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                   left: 0,
                   width: HEADER_WIDTH,
                   height: ROW_HEIGHT,
-                  background: isRowSelected ? '#d3e3fd' : (row % 2 === 0 ? COLORS.rowOdd : COLORS.headerBg),
+                  background: isRowHighlighted ? COLORS.headerSelectedBg : (row % 2 === 0 ? COLORS.rowOdd : COLORS.headerBg),
                   borderBottom: `1px solid ${COLORS.cellBorder}`,
                   borderRight: `1px solid ${COLORS.cellBorder}`,
                   display: 'flex',
@@ -501,7 +661,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                   justifyContent: 'center',
                   fontWeight: 400,
                   fontSize: 11,
-                  color: isRowSelected ? '#1a73e8' : COLORS.headerText,
+                  color: isRowHighlighted ? COLORS.headerSelectedText : COLORS.headerText,
                   boxSizing: 'border-box',
                   userSelect: 'none',
                 }}
@@ -522,11 +682,16 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
         >
           {rows.map((row) => (
             <div key={row} style={{ display: 'flex' }}>
-              {columns.map((col) => {
+              {columns.map((col, colIdx) => {
                 const address = `${col}${row}`;
                 const cell = cells.get(address);
                 const isSelected = selectedAddress === address;
                 const isEditing = editingAddress === address;
+                const isInRange = selectionRange ? isCellInRange(colIdx, row, selectionRange) : false;
+                const isAnchor = selectionRange
+                  ? colIdx === selectionRange.startCol && row === selectionRange.startRow
+                  : false;
+                const hasMultiRange = selectionRange ? isMultiCellRange(selectionRange) : false;
                 const rowBg = row % 2 === 0 ? COLORS.rowOdd : COLORS.rowEven;
 
                 const displayVal = getDisplayValue(cell);
@@ -536,10 +701,32 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                     ? `${address}: ${displayVal}`
                     : address;
 
+                // Determine background
+                let bg = rowBg;
+                if (isEditing) {
+                  bg = COLORS.editBg;
+                } else if (isInRange && hasMultiRange) {
+                  bg = COLORS.rangeBg;
+                } else if (isSelected) {
+                  bg = COLORS.selectedBg;
+                }
+
+                // Determine box shadow for selection outline
+                let boxShadow = 'none';
+                if (!isEditing) {
+                  if (isAnchor && hasMultiRange) {
+                    // Anchor cell in multi-range: darker border
+                    boxShadow = `inset 0 0 0 2px ${COLORS.selectedBorder}`;
+                  } else if (isSelected && !hasMultiRange) {
+                    // Single cell selection
+                    boxShadow = `inset 0 0 0 2px ${COLORS.selectedBorder}`;
+                  }
+                }
+
                 return (
                   <div
                     key={address}
-                    onClick={() => handleCellClick(address)}
+                    onMouseDown={(e) => handleCellMouseDown(address, e)}
                     onDoubleClick={() => handleCellDoubleClick(address)}
                     title={tooltipText}
                     style={{
@@ -547,13 +734,9 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                       height: ROW_HEIGHT,
                       borderBottom: `1px solid ${COLORS.cellBorder}`,
                       borderRight: `1px solid ${COLORS.cellBorder}`,
-                      padding: isSelected && !isEditing ? '0 5px' : '0 6px',
+                      padding: (isSelected || isAnchor) && !isEditing ? '0 5px' : '0 6px',
                       cursor: 'cell',
-                      background: isEditing
-                        ? COLORS.editBg
-                        : isSelected
-                          ? COLORS.selectedBg
-                          : rowBg,
+                      background: bg,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -563,10 +746,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                       boxSizing: 'border-box',
                       position: 'relative',
                       lineHeight: `${ROW_HEIGHT}px`,
-                      // Selection outline rendered via box-shadow to avoid layout shift
-                      boxShadow: isSelected && !isEditing
-                        ? `inset 0 0 0 2px ${COLORS.selectedBorder}`
-                        : 'none',
+                      boxShadow,
                     }}
                   >
                     {isEditing ? null : displayVal}

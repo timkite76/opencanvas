@@ -11,6 +11,8 @@ interface WriteSurfaceProps {
   onBlockFocus: (blockId: string) => void;
   onInsertBlockAfter: (blockId: string) => void;
   onDeleteBlock: (blockId: string) => void;
+  onInsertListItemAfter?: (blockId: string, listType: 'bullet' | 'ordered') => void;
+  onConvertToParagraph?: (blockId: string) => void;
 }
 
 export const WriteSurface: React.FC<WriteSurfaceProps> = ({
@@ -22,6 +24,8 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
   onBlockFocus,
   onInsertBlockAfter,
   onDeleteBlock,
+  onInsertListItemAfter,
+  onConvertToParagraph,
 }) => {
   return (
     <div
@@ -65,6 +69,8 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
               onFocus={onBlockFocus}
               onInsertBlockAfter={onInsertBlockAfter}
               onDeleteBlock={onDeleteBlock}
+              onInsertListItemAfter={onInsertListItemAfter}
+              onConvertToPararaph={onConvertToParagraph}
             />
           );
         })}

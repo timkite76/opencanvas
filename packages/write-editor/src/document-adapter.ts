@@ -1,17 +1,19 @@
 import type { Operation, ObjectID } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import { applyOperation, applyOperations } from '@opencanvas/core-ops';
-import type { WriteNode, HeadingNode, ParagraphNode, TextRun, InlineMark } from '@opencanvas/write-model';
+import type { WriteNode, HeadingNode, ParagraphNode, ListNode, ListItemNode, TextRun, InlineMark } from '@opencanvas/write-model';
 import { getNodePlainText } from '@opencanvas/write-model';
 
 export type { TextRun, InlineMark };
 
 export interface EditableBlock {
   id: ObjectID;
-  type: 'heading' | 'paragraph';
+  type: 'heading' | 'paragraph' | 'list_item';
   level?: number;
   text: string;
   runs: TextRun[];
+  listType?: 'bullet' | 'ordered';
+  listIndex?: number;
 }
 
 export interface CanonicalSelection {
@@ -60,6 +62,40 @@ export class WriteDocumentAdapter {
         type: 'paragraph',
         text: getNodePlainText(node),
         runs: paragraphNode.content ?? [{ text: getNodePlainText(node) }],
+      });
+    } else if (node.type === 'list') {
+      // A list node itself is not editable; recurse into its list_item children
+      const listNode = node as ListNode;
+      if (node.childIds) {
+        for (let i = 0; i < node.childIds.length; i++) {
+          const childId = node.childIds[i];
+          const childNode = this.artifact.nodes[childId] as WriteNode | undefined;
+          if (childNode && childNode.type === 'list_item') {
+            const listItemNode = childNode as ListItemNode;
+            blocks.push({
+              id: childNode.id,
+              type: 'list_item',
+              text: getNodePlainText(childNode),
+              runs: listItemNode.content ?? [{ text: getNodePlainText(childNode) }],
+              listType: listNode.listType,
+              listIndex: i,
+            });
+          } else if (childNode) {
+            this.collectBlocks(childId, blocks);
+          }
+        }
+      }
+      return; // Already handled children above
+    } else if (node.type === 'list_item') {
+      // A list_item without a list parent (orphan) — render as bullet by default
+      const listItemNode = node as ListItemNode;
+      blocks.push({
+        id: node.id,
+        type: 'list_item',
+        text: getNodePlainText(node),
+        runs: listItemNode.content ?? [{ text: getNodePlainText(node) }],
+        listType: 'bullet',
+        listIndex: 0,
       });
     }
 

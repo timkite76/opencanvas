@@ -24,6 +24,7 @@ function countWordsAndChars(blocks: EditableBlock[]): { words: number; character
 function getBlockTypeLabel(block: EditableBlock | null): string {
   if (!block) return '--';
   if (block.type === 'heading') return `Heading ${block.level ?? 1}`;
+  if (block.type === 'list_item') return block.listType === 'ordered' ? 'Numbered List' : 'Bullet List';
   return 'Paragraph';
 }
 

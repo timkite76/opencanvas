@@ -9,6 +9,8 @@ interface BlockEditorProps {
   onFocus: (blockId: string) => void;
   onInsertBlockAfter: (blockId: string) => void;
   onDeleteBlock?: (blockId: string) => void;
+  onInsertListItemAfter?: (blockId: string, listType: 'bullet' | 'ordered') => void;
+  onConvertToPararaph?: (blockId: string) => void;
 }
 
 /**
@@ -61,6 +63,28 @@ const PARAGRAPH_STYLE: React.CSSProperties = {
   color: '#1a1a1a',
 };
 
+const LIST_ITEM_STYLE: React.CSSProperties = {
+  fontSize: 16,
+  lineHeight: 1.8,
+  marginTop: 0,
+  marginBottom: 0,
+  color: '#1a1a1a',
+  paddingLeft: 24,
+  position: 'relative',
+};
+
+const LIST_MARKER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  top: 0,
+  width: 24,
+  textAlign: 'right',
+  paddingRight: 8,
+  userSelect: 'none',
+  pointerEvents: 'none',
+  color: '#6b7280',
+};
+
 export const BlockEditor: React.FC<BlockEditorProps> = ({
   block,
   isSelected,
@@ -69,6 +93,8 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   onFocus,
   onInsertBlockAfter,
   onDeleteBlock,
+  onInsertListItemAfter,
+  onConvertToPararaph,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -100,10 +126,22 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
         return;
       }
 
-      // Enter: insert new block
+      // Enter: insert new block (or new list item)
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        onInsertBlockAfter(block.id);
+        if (block.type === 'list_item' && block.listType) {
+          const text = ref.current?.textContent ?? '';
+          if (text.length === 0 && onConvertToPararaph) {
+            // Empty list item: exit list by converting to paragraph
+            onConvertToPararaph(block.id);
+          } else if (onInsertListItemAfter) {
+            onInsertListItemAfter(block.id, block.listType);
+          } else {
+            onInsertBlockAfter(block.id);
+          }
+        } else {
+          onInsertBlockAfter(block.id);
+        }
         return;
       }
 
@@ -208,6 +246,25 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     if (level === 2) return <h2 {...commonProps} style={style}>{content}</h2>;
     if (level === 3) return <h3 {...commonProps} style={style}>{content}</h3>;
     return <h4 {...commonProps} style={style}>{content}</h4>;
+  }
+
+  if (block.type === 'list_item') {
+    const marker = block.listType === 'ordered'
+      ? `${(block.listIndex ?? 0) + 1}.`
+      : '\u2022';
+    return (
+      <div style={{ ...baseStyle, ...LIST_ITEM_STYLE }} role="listitem">
+        <span style={LIST_MARKER_STYLE} contentEditable={false} aria-hidden="true">
+          {marker}
+        </span>
+        <div
+          {...commonProps}
+          style={{ minHeight: '1.4em', outline: 'none' }}
+        >
+          {content}
+        </div>
+      </div>
+    );
   }
 
   return <p {...commonProps} style={{ ...baseStyle, ...PARAGRAPH_STYLE }}>{content}</p>;
