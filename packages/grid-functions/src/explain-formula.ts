@@ -120,7 +120,18 @@ export const explainFormulaFunction: RegisteredFunction = {
       };
     }
 
-    const explanation = explainFormula(formula);
+    let explanation: string;
+
+    if (context.callLlm) {
+      // Real LLM call
+      const systemPrompt = 'You are a spreadsheet expert. Explain the formula in plain language. Be concise (2-3 sentences).';
+      const userPrompt = `Explain this spreadsheet formula:\n\n${formula}`;
+      explanation = await context.callLlm({ systemPrompt, userPrompt });
+      explanation = explanation.trim();
+    } else {
+      // Fallback to deterministic logic
+      explanation = explainFormula(formula);
+    }
 
     return {
       proposedOperations: [],

@@ -95,7 +95,32 @@ export const generateFormulaFunction: RegisteredFunction = {
       throw new Error(`Target node "${targetId}" not found in artifact`);
     }
 
-    const generatedFormula = generateFormulaFromDescription(description);
+    // Get cell address for context
+    const cellAddress = node && typeof node === 'object' && 'address' in node
+      ? String((node as Record<string, unknown>).address)
+      : targetId;
+
+    let generatedFormula: string;
+
+    if (context.callLlm) {
+      // Real LLM call
+      const systemPrompt = 'You are a spreadsheet expert. Generate a spreadsheet formula from the description. Return ONLY the formula starting with \'=\' and nothing else.';
+      const userPrompt = `Generate a spreadsheet formula for: ${description}\n\nContext: Target cell ${cellAddress}`;
+      const response = await context.callLlm({ systemPrompt, userPrompt });
+
+      // Extract formula (should start with =)
+      const lines = response.split('\n').map((line) => line.trim());
+      const formulaLine = lines.find((line) => line.startsWith('='));
+      generatedFormula = formulaLine || response.trim();
+
+      // Ensure it starts with =
+      if (!generatedFormula.startsWith('=')) {
+        generatedFormula = '=' + generatedFormula;
+      }
+    } else {
+      // Fallback to deterministic logic
+      generatedFormula = generateFormulaFromDescription(description);
+    }
 
     const previousFormula =
       node && typeof node === 'object' && 'formula' in node

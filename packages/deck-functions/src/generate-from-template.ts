@@ -267,8 +267,27 @@ export const generateFromTemplateFunction: RegisteredFunction = {
   },
   execute: async (context: FunctionExecutionContext): Promise<FunctionResult> => {
     const templateType = context.parameters.templateType as TemplateType;
-    const title = (context.parameters.title as string) ?? '';
-    const subtitle = (context.parameters.subtitle as string) ?? '';
+    let title = (context.parameters.title as string) ?? '';
+    let subtitle = (context.parameters.subtitle as string) ?? '';
+
+    // If LLM is available and we have a title, generate enhanced content
+    if (context.callLlm && title) {
+      const systemPrompt = 'You are a presentation designer. Given a slide title and template type, suggest enhanced title and subtitle text. Return the title on the first line and subtitle on the second line.';
+      const userPrompt = `Template: ${templateType}\nTitle: ${title}\n\nSuggest enhanced title and subtitle:`;
+
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt, maxTokens: 200 });
+        const lines = response.split('\n').map((line) => line.trim()).filter(Boolean);
+        if (lines.length >= 1) {
+          title = lines[0]!;
+        }
+        if (lines.length >= 2) {
+          subtitle = lines[1]!;
+        }
+      } catch (error) {
+        // Use original values
+      }
+    }
 
     const templateNodes = buildTemplate(templateType, title, subtitle);
     const artifactId = context.artifact.artifactId;

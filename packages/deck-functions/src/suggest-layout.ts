@@ -147,7 +147,38 @@ export const suggestLayoutFunction: RegisteredFunction = {
       throw new Error('No text boxes found on this slide to analyze');
     }
 
-    const suggestions = analyzeContentDensity(textBoxes);
+    let suggestions: LayoutSuggestion[];
+
+    if (context.callLlm) {
+      // Real LLM call - describe the slide layout
+      const totalWords = textBoxes.reduce((sum, tb) => sum + countWords(tb.text), 0);
+      const layoutDescription = `Slide has ${textBoxes.length} text box(es) with ${totalWords} total words.\n` +
+        textBoxes.map((tb, i) => `Text box ${i + 1}: "${tb.text.slice(0, 50)}..." (${countWords(tb.text)} words)`).join('\n');
+
+      const systemPrompt = 'You are a presentation designer. Suggest the best layout for this slide content. Return the layout name on the first line, then a brief explanation.';
+      const userPrompt = `Suggest layout improvements for this slide:\n\n${layoutDescription}`;
+
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt });
+        const lines = response.split('\n').map((line) => line.trim()).filter(Boolean);
+
+        // Parse suggestions
+        suggestions = lines.map((line) => ({
+          type: 'reposition' as const,
+          description: line,
+        }));
+
+        if (suggestions.length === 0) {
+          suggestions = analyzeContentDensity(textBoxes);
+        }
+      } catch (error) {
+        // Fall through to deterministic logic
+        suggestions = analyzeContentDensity(textBoxes);
+      }
+    } else {
+      // Fallback to deterministic logic
+      suggestions = analyzeContentDensity(textBoxes);
+    }
     const operations: Array<UpdateNodeOperation | InsertNodeOperation> = [];
     const timestamp = new Date().toISOString();
     const artifactId = context.artifact.artifactId;

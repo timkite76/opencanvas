@@ -1,0 +1,31 @@
+{
+  "name": "@opencanvas/api-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "better-sqlite3": "^11.7.0",
+    "uuid": "^11.0.0",
+    "bcryptjs": "^2.4.3",
+    "@anthropic-ai/sdk": "^0.32.0",
+    "openai": "^4.80.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/uuid": "^10.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

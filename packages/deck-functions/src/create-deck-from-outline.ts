@@ -38,7 +38,7 @@ export const createDeckFromOutlineFunction: RegisteredFunction = {
   },
   execute: async (context: FunctionExecutionContext): Promise<FunctionResult> => {
     const title = context.parameters.title as string;
-    const slideTitles = context.parameters.slideTitles as string[];
+    let slideTitles = context.parameters.slideTitles as string[];
 
     if (!title) {
       throw new Error('Missing required parameter: title');
@@ -47,13 +47,55 @@ export const createDeckFromOutlineFunction: RegisteredFunction = {
       throw new Error('Missing required parameter: slideTitles (must be non-empty array)');
     }
 
+    // If LLM is available, generate body content for each slide
+    const slideContents: Array<{ title: string; body: string }> = [];
+
+    if (context.callLlm) {
+      // Real LLM call to generate slide content
+      const systemPrompt = 'You are a presentation creator. Create slide content from the outline. For each slide, output the title on one line, then the body text, separated by --- between slides.';
+      const userPrompt = `Create presentation content for topic "${title}" with these slides:\n\n${slideTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
+
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt });
+        const slides = response.split('---').map((s) => s.trim()).filter(Boolean);
+
+        for (let i = 0; i < Math.min(slides.length, slideTitles.length); i++) {
+          const slideText = slides[i] || '';
+          const lines = slideText.split('\n').map((line) => line.trim()).filter(Boolean);
+          const slideTitle = lines[0] || slideTitles[i] || '';
+          const slideBody = lines.slice(1).join('\n') || `Content for: ${slideTitle}`;
+
+          slideContents.push({ title: slideTitle, body: slideBody });
+        }
+
+        // Fill in any missing slides
+        for (let i = slideContents.length; i < slideTitles.length; i++) {
+          slideContents.push({
+            title: slideTitles[i]!,
+            body: `Content for: ${slideTitles[i]}`,
+          });
+        }
+      } catch (error) {
+        // Fall through to deterministic content
+      }
+    }
+
+    if (slideContents.length === 0) {
+      // Fallback: generate basic content
+      for (let i = 0; i < slideTitles.length; i++) {
+        const slideTitle = i === 0 ? title : slideTitles[i]!;
+        const body = i === 0 ? `Presentation: ${title}` : `Content for: ${slideTitles[i]}`;
+        slideContents.push({ title: slideTitle, body });
+      }
+    }
+
     const artifactId = context.artifact.artifactId;
     const rootNodeId = context.artifact.rootNodeId;
     const timestamp = new Date().toISOString();
     const operations: InsertNodeOperation[] = [];
 
-    for (let i = 0; i < slideTitles.length; i++) {
-      const slideTitle = slideTitles[i]!;
+    for (let i = 0; i < slideContents.length; i++) {
+      const slideContent = slideContents[i]!;
       const slideId = uuidv4();
       const titleBoxId = uuidv4();
       const bodyBoxId = uuidv4();
@@ -94,17 +136,13 @@ export const createDeckFromOutlineFunction: RegisteredFunction = {
             y: 40,
             width: 840,
             height: 80,
-            content: [{ text: i === 0 ? title : slideTitle, bold: true, fontSize: 36 }],
+            content: [{ text: slideContent.title, bold: true, fontSize: 36 }],
           } as Record<string, unknown> & { id: string; type: string },
           parentId: slideId,
         },
       });
 
       // Insert body text box
-      const bodyText = i === 0
-        ? `Presentation: ${title}`
-        : `Content for: ${slideTitle}`;
-
       operations.push({
         operationId: uuidv4(),
         type: 'insert_node',
@@ -121,20 +159,20 @@ export const createDeckFromOutlineFunction: RegisteredFunction = {
             y: 150,
             width: 840,
             height: 340,
-            content: [{ text: bodyText, fontSize: 20 }],
+            content: [{ text: slideContent.body, fontSize: 20 }],
           } as Record<string, unknown> & { id: string; type: string },
           parentId: slideId,
         },
       });
     }
 
-    const previewLines = slideTitles.map((t, i) => `  ${i + 1}. ${t}`);
-    const previewText = `Create deck "${title}" with ${slideTitles.length} slides:\n${previewLines.join('\n')}`;
+    const previewLines = slideContents.map((s, i) => `  ${i + 1}. ${s.title}`);
+    const previewText = `Create deck "${title}" with ${slideContents.length} slides:\n${previewLines.join('\n')}`;
 
     return {
       proposedOperations: operations,
       previewText,
-      output: { slideCount: slideTitles.length },
+      output: { slideCount: slideContents.length },
     };
   },
 };

@@ -16,12 +16,21 @@ export interface FunctionPermissionSpec {
   requiresApproval: boolean;
 }
 
+export interface LlmCallOptions {
+  systemPrompt: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
 export interface FunctionExecutionContext {
   artifact: ArtifactEnvelope;
   targetId: ObjectID;
   selectionStart?: number;
   selectionEnd?: number;
   parameters: Record<string, unknown>;
+  /** Call the configured LLM. Injected by ai-runtime when a provider is configured. */
+  callLlm?: (options: LlmCallOptions) => Promise<string>;
 }
 
 export interface FunctionResult {

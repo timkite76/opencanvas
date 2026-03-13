@@ -221,17 +221,44 @@ export const improveWritingFunction: RegisteredFunction = {
       throw new Error('No text content to analyze');
     }
 
-    const suggestions: WritingSuggestion[] = [
-      ...detectPassiveVoice(text),
-      ...detectLongSentences(text),
-      ...detectJargon(text),
-      ...detectWordyPhrases(text),
-    ];
+    let suggestions: WritingSuggestion[];
+    let previewText: string;
 
-    // Sort by offset
-    suggestions.sort((a, b) => a.offset - b.offset);
+    if (context.callLlm) {
+      // Real LLM call
+      const systemPrompt = 'You are a professional editor. Analyze the text for grammar and style issues including passive voice, long sentences, jargon, and wordy phrases. Return each suggestion on its own line prefixed with \'- \'. Keep suggestions concise.';
+      const userPrompt = `Analyze this text for writing improvements:\n\n${text}`;
+      const response = await context.callLlm({ systemPrompt, userPrompt });
 
-    const previewText = formatSuggestionsAsPreview(text, suggestions);
+      // Parse response into suggestions
+      const lines = response
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('- '))
+        .map((line) => line.slice(2).trim());
+
+      suggestions = lines.map((line, i) => ({
+        type: 'jargon' as const,
+        original: '',
+        suggestion: line,
+        offset: i,
+      }));
+
+      previewText = suggestions.length > 0
+        ? `Found ${suggestions.length} suggestion(s):\n\n${lines.map((s) => `  - ${s}`).join('\n')}`
+        : 'No writing issues detected. The text reads well.';
+    } else {
+      // Fallback to deterministic logic
+      suggestions = [
+        ...detectPassiveVoice(text),
+        ...detectLongSentences(text),
+        ...detectJargon(text),
+        ...detectWordyPhrases(text),
+      ];
+
+      suggestions.sort((a, b) => a.offset - b.offset);
+      previewText = formatSuggestionsAsPreview(text, suggestions);
+    }
 
     return {
       proposedOperations: [],

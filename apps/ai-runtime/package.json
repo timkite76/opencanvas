@@ -18,6 +18,8 @@
     "@opencanvas/function-examples": "workspace:*",
     "@opencanvas/grid-functions": "workspace:*",
     "@opencanvas/deck-functions": "workspace:*",
+    "@opencanvas/llm-client": "workspace:*",
+    "@opencanvas/model-router": "workspace:*",
     "express": "^4.21.0",
     "cors": "^2.8.5",
     "uuid": "^11.0.0"

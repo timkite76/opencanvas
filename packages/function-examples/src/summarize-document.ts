@@ -122,10 +122,36 @@ export const summarizeDocumentFunction: RegisteredFunction = {
     requiresApproval: true,
   },
   execute: async (context: FunctionExecutionContext): Promise<FunctionResult> => {
-    const summaryText = buildSummary(context);
+    let summaryText: string;
 
-    if (!summaryText) {
-      throw new Error('Could not generate summary: no text content found in the document');
+    if (context.callLlm) {
+      // Real LLM call - gather all document text
+      const { artifact } = context;
+      const allText: string[] = [];
+
+      for (const nodeId of Object.keys(artifact.nodes)) {
+        const node = artifact.nodes[nodeId] as WriteNode | undefined;
+        if (node && (node.type === 'paragraph' || node.type === 'list_item' || node.type === 'heading' || node.type === 'semantic_block')) {
+          const text = getNodePlainText(node);
+          if (text) allText.push(text);
+        }
+      }
+
+      const documentText = allText.join('\n\n');
+      if (!documentText) {
+        throw new Error('Could not generate summary: no text content found in the document');
+      }
+
+      const systemPrompt = 'You are a document analyst. Summarize the document concisely. Return ONLY the summary.';
+      const userPrompt = `Summarize this document:\n\n${documentText}`;
+      summaryText = await context.callLlm({ systemPrompt, userPrompt });
+      summaryText = summaryText.trim();
+    } else {
+      // Fallback to deterministic logic
+      summaryText = buildSummary(context);
+      if (!summaryText) {
+        throw new Error('Could not generate summary: no text content found in the document');
+      }
     }
 
     const { artifact } = context;

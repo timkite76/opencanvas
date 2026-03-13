@@ -106,120 +106,159 @@ export const enhanceSlideFunction: RegisteredFunction = {
 
     const totalWords = textBoxes.reduce((sum, tb) => sum + countWords(tb.text), 0);
 
-    // Case 1: Title-only slide (just one box with a short title) - add body bullets
-    if (textBoxes.length === 1 && totalWords <= 10) {
-      enhancementType = 'expand_title';
-      const titleText = textBoxes[0]!.text;
-      const bodyText = deriveBodyFromTitle(titleText);
-      const bodyId = uuidv4();
+    if (context.callLlm && textBoxes.length > 0) {
+      // Real LLM call - ask for enhancement suggestions
+      const slideContent = textBoxes.map((tb, i) => `Text box ${i + 1}: ${tb.text}`).join('\n');
+      const systemPrompt = 'You are a presentation designer. Enhance the slide text to be more impactful and visually oriented. Return ONLY the enhanced text.';
+      const userPrompt = `Enhance this slide text:\n\n${slideContent}`;
 
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt });
+        const enhancedText = response.trim();
+
+        // Apply enhancement to first textbox
+        if (textBoxes.length > 0 && enhancedText) {
+          operations.push({
+            operationId: uuidv4(),
+            type: 'update_node',
+            artifactId,
+            targetId: textBoxes[0]!.id,
+            actorType: 'agent',
+            actorId: 'deck-enhance-agent',
+            timestamp,
+            payload: {
+              patch: {
+                content: [{ text: enhancedText, fontSize: 20 }],
+              },
+            },
+          });
+
+          previews.push(`Enhanced text: "${textBoxes[0]!.text.slice(0, 30)}..." -> "${enhancedText.slice(0, 30)}..."`);
+          enhancementType = 'llm_enhance';
+        }
+      } catch (error) {
+        // Fall through to deterministic logic
+      }
+    }
+
+    if (operations.length === 0) {
+      // Fallback to deterministic logic
+
+      // Case 1: Title-only slide (just one box with a short title) - add body bullets
+      if (textBoxes.length === 1 && totalWords <= 10) {
+        enhancementType = 'expand_title';
+        const titleText = textBoxes[0]!.text;
+        const bodyText = deriveBodyFromTitle(titleText);
+        const bodyId = uuidv4();
+
+        operations.push({
+          operationId: uuidv4(),
+          type: 'insert_node',
+          artifactId,
+          targetId: bodyId,
+          actorType: 'agent',
+          actorId: 'deck-enhance-agent',
+          timestamp,
+          payload: {
+            node: {
+              id: bodyId,
+              type: 'textbox',
+              x: 60,
+              y: 150,
+              width: 840,
+              height: 300,
+              content: [{ text: bodyText, fontSize: 20 }],
+            } as Record<string, unknown> & { id: string; type: string },
+            parentId: slideId,
+          },
+        });
+
+        previews.push(`Added body text with bullet points derived from title "${titleText}"`);
+      }
+
+      // Case 2: Text-heavy slide - simplify to key points
+      if (totalWords > 60) {
+        enhancementType = enhancementType ? enhancementType + '+simplify' : 'simplify';
+
+        for (const tb of textBoxes) {
+          if (countWords(tb.text) <= 20) continue; // Skip short boxes
+
+          const keyPoints = extractKeyPoints(tb.text);
+          const simplified = keyPoints.map((kp) => `\u2022 ${kp}`).join('\n');
+
+          operations.push({
+            operationId: uuidv4(),
+            type: 'update_node',
+            artifactId,
+            targetId: tb.id,
+            actorType: 'agent',
+            actorId: 'deck-enhance-agent',
+            timestamp,
+            payload: {
+              patch: {
+                content: [{ text: simplified, fontSize: 18 }],
+              },
+            },
+          });
+
+          previews.push(`Simplified "${tb.text.slice(0, 30)}..." to ${keyPoints.length} key points`);
+        }
+      }
+
+      // Case 3: Always add decorative accent bar at bottom
+      const accentBarId = uuidv4();
       operations.push({
         operationId: uuidv4(),
         type: 'insert_node',
         artifactId,
-        targetId: bodyId,
+        targetId: accentBarId,
         actorType: 'agent',
         actorId: 'deck-enhance-agent',
         timestamp,
         payload: {
           node: {
-            id: bodyId,
-            type: 'textbox',
-            x: 60,
-            y: 150,
-            width: 840,
-            height: 300,
-            content: [{ text: bodyText, fontSize: 20 }],
+            id: accentBarId,
+            type: 'shape',
+            shapeType: 'rectangle',
+            x: 0,
+            y: 520,
+            width: 960,
+            height: 20,
+            fill: '#1a73e8',
           } as Record<string, unknown> & { id: string; type: string },
           parentId: slideId,
         },
       });
+      previews.push('Added decorative accent bar at bottom');
 
-      previews.push(`Added body text with bullet points derived from title "${titleText}"`);
+      // Add small accent rectangle in top-right corner
+      const accentRectId = uuidv4();
+      operations.push({
+        operationId: uuidv4(),
+        type: 'insert_node',
+        artifactId,
+        targetId: accentRectId,
+        actorType: 'agent',
+        actorId: 'deck-enhance-agent',
+        timestamp,
+        payload: {
+          node: {
+            id: accentRectId,
+            type: 'shape',
+            shapeType: 'rectangle',
+            x: 880,
+            y: 0,
+            width: 80,
+            height: 8,
+            fill: '#e8710a',
+          } as Record<string, unknown> & { id: string; type: string },
+          parentId: slideId,
+        },
+      });
+      previews.push('Added accent rectangle');
+
+      if (!enhancementType) enhancementType = 'decorate';
     }
-
-    // Case 2: Text-heavy slide - simplify to key points
-    if (totalWords > 60) {
-      enhancementType = enhancementType ? enhancementType + '+simplify' : 'simplify';
-
-      for (const tb of textBoxes) {
-        if (countWords(tb.text) <= 20) continue; // Skip short boxes
-
-        const keyPoints = extractKeyPoints(tb.text);
-        const simplified = keyPoints.map((kp) => `\u2022 ${kp}`).join('\n');
-
-        operations.push({
-          operationId: uuidv4(),
-          type: 'update_node',
-          artifactId,
-          targetId: tb.id,
-          actorType: 'agent',
-          actorId: 'deck-enhance-agent',
-          timestamp,
-          payload: {
-            patch: {
-              content: [{ text: simplified, fontSize: 18 }],
-            },
-          },
-        });
-
-        previews.push(`Simplified "${tb.text.slice(0, 30)}..." to ${keyPoints.length} key points`);
-      }
-    }
-
-    // Case 3: Always add decorative accent bar at bottom
-    const accentBarId = uuidv4();
-    operations.push({
-      operationId: uuidv4(),
-      type: 'insert_node',
-      artifactId,
-      targetId: accentBarId,
-      actorType: 'agent',
-      actorId: 'deck-enhance-agent',
-      timestamp,
-      payload: {
-        node: {
-          id: accentBarId,
-          type: 'shape',
-          shapeType: 'rectangle',
-          x: 0,
-          y: 520,
-          width: 960,
-          height: 20,
-          fill: '#1a73e8',
-        } as Record<string, unknown> & { id: string; type: string },
-        parentId: slideId,
-      },
-    });
-    previews.push('Added decorative accent bar at bottom');
-
-    // Add small accent rectangle in top-right corner
-    const accentRectId = uuidv4();
-    operations.push({
-      operationId: uuidv4(),
-      type: 'insert_node',
-      artifactId,
-      targetId: accentRectId,
-      actorType: 'agent',
-      actorId: 'deck-enhance-agent',
-      timestamp,
-      payload: {
-        node: {
-          id: accentRectId,
-          type: 'shape',
-          shapeType: 'rectangle',
-          x: 880,
-          y: 0,
-          width: 80,
-          height: 8,
-          fill: '#e8710a',
-        } as Record<string, unknown> & { id: string; type: string },
-        parentId: slideId,
-      },
-    });
-    previews.push('Added accent rectangle');
-
-    if (!enhancementType) enhancementType = 'decorate';
 
     const previewText = `Enhanced slide (${enhancementType}):\n${previews.map((p, i) => `  ${i + 1}. ${p}`).join('\n')}`;
 

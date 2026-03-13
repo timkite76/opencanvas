@@ -194,55 +194,98 @@ export const suggestChartFunction: RegisteredFunction = {
       };
     }
 
-    const numericCols = columns.filter((c) => c.isNumeric);
-    const categorialCols = columns.filter((c) => c.isCategorial);
-    const sequentialCols = columns.filter((c) => c.isSequential);
+    let chartType: 'bar' | 'line' | 'pie' = 'bar';
+    let reasons: string[] = [];
 
-    let chartType: 'bar' | 'line' | 'pie';
-    const reasons: string[] = [];
+    if (context.callLlm) {
+      // Real LLM call - describe the data and ask for recommendation
+      const dataDescription = columns.map((col) => {
+        const typeDesc = col.isNumeric
+          ? `numeric (${col.numericValues.length} values: ${col.numericValues.slice(0, 5).join(', ')}...)`
+          : col.isCategorial
+            ? `categorical (${col.uniqueCount} unique values: ${col.stringValues.slice(0, 5).join(', ')}...)`
+            : `mixed`;
+        return `Column ${col.colLabel}: ${typeDesc}${col.isSequential ? ' [sequential/time-based]' : ''}`;
+      }).join('\n');
 
-    // Rule 1: If there is a sequential/time column and numeric data -> line chart
-    if (sequentialCols.length > 0 && numericCols.length > 0) {
-      chartType = 'line';
-      reasons.push(
-        `Column ${sequentialCols[0]!.colLabel} appears to contain sequential/time-based data.`,
-      );
-      reasons.push(
-        `${numericCols.length} numeric column(s) provide data series.`,
-      );
-      reasons.push('A line chart is best for showing trends over time or sequences.');
+      const systemPrompt = 'You are a data visualization expert. Based on the data, suggest the best chart type and explain why. Return the chart type on the first line (bar, line, or pie), then a brief explanation.';
+      const userPrompt = `Suggest a chart type for this data:\n\n${dataDescription}`;
+
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt });
+        const lines = response.split('\n').map((line) => line.trim()).filter(Boolean);
+
+        // Parse first line for chart type
+        const firstLine = lines[0]?.toLowerCase() || '';
+        if (firstLine.includes('line')) {
+          chartType = 'line';
+        } else if (firstLine.includes('pie')) {
+          chartType = 'pie';
+        } else {
+          chartType = 'bar';
+        }
+
+        reasons = lines.slice(1);
+        if (reasons.length === 0) {
+          reasons = [lines[0] || 'Recommended based on data characteristics'];
+        }
+      } catch (error) {
+        // Fall through to deterministic logic
+        chartType = 'bar';
+      }
     }
-    // Rule 2: If one category column + one numeric column with few categories -> pie chart
-    else if (
-      categorialCols.length === 1 &&
-      numericCols.length === 1 &&
-      categorialCols[0]!.uniqueCount <= 8 &&
-      numericCols[0]!.numericValues.every((n) => n >= 0)
-    ) {
-      chartType = 'pie';
-      reasons.push(
-        `Column ${categorialCols[0]!.colLabel} has ${categorialCols[0]!.uniqueCount} categories.`,
-      );
-      reasons.push(
-        `Column ${numericCols[0]!.colLabel} has all non-negative values.`,
-      );
-      reasons.push('A pie chart works well for showing proportions with a small number of categories.');
-    }
-    // Rule 3: Categories + numeric -> bar chart
-    else if (categorialCols.length >= 1 && numericCols.length >= 1) {
-      chartType = 'bar';
-      reasons.push(
-        `${categorialCols.length} category column(s) and ${numericCols.length} numeric column(s) found.`,
-      );
-      reasons.push('A bar chart is ideal for comparing values across categories.');
-    }
-    // Default: bar chart
-    else {
-      chartType = 'bar';
-      reasons.push(
-        `Found ${columns.length} column(s) with ${numericCols.length} numeric and ${categorialCols.length} categorical.`,
-      );
-      reasons.push('A bar chart is recommended as a versatile default visualization.');
+
+    if (!context.callLlm || reasons.length === 0) {
+      // Fallback to deterministic logic
+      const numericCols = columns.filter((c) => c.isNumeric);
+      const categorialCols = columns.filter((c) => c.isCategorial);
+      const sequentialCols = columns.filter((c) => c.isSequential);
+
+      reasons = [];
+
+      // Rule 1: If there is a sequential/time column and numeric data -> line chart
+      if (sequentialCols.length > 0 && numericCols.length > 0) {
+        chartType = 'line';
+        reasons.push(
+          `Column ${sequentialCols[0]!.colLabel} appears to contain sequential/time-based data.`,
+        );
+        reasons.push(
+          `${numericCols.length} numeric column(s) provide data series.`,
+        );
+        reasons.push('A line chart is best for showing trends over time or sequences.');
+      }
+      // Rule 2: If one category column + one numeric column with few categories -> pie chart
+      else if (
+        categorialCols.length === 1 &&
+        numericCols.length === 1 &&
+        categorialCols[0]!.uniqueCount <= 8 &&
+        numericCols[0]!.numericValues.every((n) => n >= 0)
+      ) {
+        chartType = 'pie';
+        reasons.push(
+          `Column ${categorialCols[0]!.colLabel} has ${categorialCols[0]!.uniqueCount} categories.`,
+        );
+        reasons.push(
+          `Column ${numericCols[0]!.colLabel} has all non-negative values.`,
+        );
+        reasons.push('A pie chart works well for showing proportions with a small number of categories.');
+      }
+      // Rule 3: Categories + numeric -> bar chart
+      else if (categorialCols.length >= 1 && numericCols.length >= 1) {
+        chartType = 'bar';
+        reasons.push(
+          `${categorialCols.length} category column(s) and ${numericCols.length} numeric column(s) found.`,
+        );
+        reasons.push('A bar chart is ideal for comparing values across categories.');
+      }
+      // Default: bar chart
+      else {
+        chartType = 'bar';
+        reasons.push(
+          `Found ${columns.length} column(s) with ${numericCols.length} numeric and ${categorialCols.length} categorical.`,
+        );
+        reasons.push('A bar chart is recommended as a versatile default visualization.');
+      }
     }
 
     const lines: string[] = [];

@@ -286,36 +286,69 @@ export const smartFillFunction: RegisteredFunction = {
         sourceValues.push(cell?.rawValue ?? null);
       }
 
-      // Check for email pattern: header says "Email" and we have a name column
-      const headerCell = findCellByAddress(context.artifact, `${columnIndexToLabel(tgtColIdx)}1`);
-      const headerValue = headerCell?.rawValue;
-      const isEmailCol =
-        typeof headerValue === 'string' &&
-        headerValue.toLowerCase().includes('email');
-
       let pattern: DetectedPattern | null = null;
 
-      if (isEmailCol) {
-        // Look for a name column to the left
-        const nameColIdx = tgtColIdx > 0 ? tgtColIdx - 1 : -1;
-        if (nameColIdx >= 0) {
-          pattern = {
-            type: 'email',
-            generateNext: (index: number) => {
-              const nameAddr = `${columnIndexToLabel(nameColIdx)}${tgtStartRow + index}`;
-              const nameCell = findCellByAddress(context.artifact, nameAddr);
-              if (nameCell?.rawValue && typeof nameCell.rawValue === 'string') {
-                const name = nameCell.rawValue.trim().toLowerCase();
-                const parts = name.split(/\s+/);
-                if (parts.length >= 2) {
-                  return `${parts[0]}.${parts[parts.length - 1]}@company.com`;
+      if (context.callLlm) {
+        // Real LLM call to predict values
+        const nonEmpty = sourceValues.filter((v) => v !== null && v !== '');
+        if (nonEmpty.length >= 2) {
+          const valuesStr = nonEmpty.map(String).join(', ');
+          const targetCount = tgtEndRow - tgtStartRow + 1;
+
+          const systemPrompt = 'You are a data assistant. Based on the pattern in the provided data, predict the next values. Return ONLY the values, one per line.';
+          const userPrompt = `Given these values in order: ${valuesStr}\n\nPredict the next ${targetCount} values:`;
+
+          try {
+            const response = await context.callLlm({ systemPrompt, userPrompt });
+            const predictedValues = response
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .slice(0, targetCount);
+
+            if (predictedValues.length > 0) {
+              pattern = {
+                type: 'text_with_number',
+                generateNext: (index: number) => predictedValues[index] ?? '',
+                description: `LLM-predicted pattern from [${valuesStr}]`,
+              };
+            }
+          } catch (error) {
+            // Fall through to deterministic pattern detection
+          }
+        }
+      }
+
+      if (!pattern) {
+        // Check for email pattern: header says "Email" and we have a name column
+        const headerCell = findCellByAddress(context.artifact, `${columnIndexToLabel(tgtColIdx)}1`);
+        const headerValue = headerCell?.rawValue;
+        const isEmailCol =
+          typeof headerValue === 'string' &&
+          headerValue.toLowerCase().includes('email');
+
+        if (isEmailCol) {
+          // Look for a name column to the left
+          const nameColIdx = tgtColIdx > 0 ? tgtColIdx - 1 : -1;
+          if (nameColIdx >= 0) {
+            pattern = {
+              type: 'email',
+              generateNext: (index: number) => {
+                const nameAddr = `${columnIndexToLabel(nameColIdx)}${tgtStartRow + index}`;
+                const nameCell = findCellByAddress(context.artifact, nameAddr);
+                if (nameCell?.rawValue && typeof nameCell.rawValue === 'string') {
+                  const name = nameCell.rawValue.trim().toLowerCase();
+                  const parts = name.split(/\s+/);
+                  if (parts.length >= 2) {
+                    return `${parts[0]}.${parts[parts.length - 1]}@company.com`;
+                  }
+                  return `${parts[0]}@company.com`;
                 }
-                return `${parts[0]}@company.com`;
-              }
-              return '';
-            },
-            description: 'Email pattern from adjacent name column',
-          };
+                return '';
+              },
+              description: 'Email pattern from adjacent name column',
+            };
+          }
         }
       }
 

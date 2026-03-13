@@ -160,7 +160,25 @@ export const completeTextFunction: RegisteredFunction = {
 
     // Use contextText if available for richer pattern matching, otherwise just node text
     const contextText = (context.parameters.contextText as string) ?? nodeText;
-    const completion = generateCompletion(contextText, cursorOffset);
+    const textBeforeCursor = contextText.slice(0, cursorOffset).trimEnd();
+
+    let completion: string;
+
+    if (context.callLlm && textBeforeCursor) {
+      // Real LLM call
+      const systemPrompt = 'You are a writing assistant. Continue the text naturally. Return ONLY the continuation text (1-2 sentences), no explanations or quotes.';
+      const userPrompt = `Continue this text naturally:\n\n${textBeforeCursor}`;
+      completion = await context.callLlm({
+        systemPrompt,
+        userPrompt,
+        maxTokens: 256,
+        temperature: 0.3,
+      });
+      completion = completion.trim();
+    } else {
+      // Fallback to deterministic logic
+      completion = generateCompletion(contextText, cursorOffset);
+    }
 
     return {
       proposedOperations: [],

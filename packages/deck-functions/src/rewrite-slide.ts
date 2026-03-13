@@ -82,36 +82,53 @@ export const rewriteSlideFunction: RegisteredFunction = {
     const operations: ReplaceTextOperation[] = [];
     const previews: string[] = [];
 
+    // Gather all textboxes first
+    const textBoxes: Array<{ id: string; text: string }> = [];
     for (const childId of childIds) {
       const child = context.artifact.nodes[childId] as unknown as AnyNode | undefined;
       if (!child || child.type !== 'textbox') continue;
-
       const originalText = getNodePlainText(child);
-      if (!originalText) continue;
+      if (originalText) {
+        textBoxes.push({ id: childId, text: originalText });
+      }
+    }
 
-      const rewrittenText = rewriteText(originalText, tone);
+    if (textBoxes.length === 0) {
+      throw new Error('No text boxes found on this slide to rewrite');
+    }
+
+    // Process each textbox
+    for (const textBox of textBoxes) {
+      let rewrittenText: string;
+
+      if (context.callLlm) {
+        // Real LLM call
+        const systemPrompt = 'You are a presentation expert. Rewrite the slide text in the specified tone. Return ONLY the rewritten text for each text box, separated by ---';
+        const userPrompt = `Rewrite this slide text in ${tone} tone:\n\n${textBox.text}`;
+        rewrittenText = await context.callLlm({ systemPrompt, userPrompt });
+        rewrittenText = rewrittenText.trim();
+      } else {
+        // Fallback to deterministic logic
+        rewrittenText = rewriteText(textBox.text, tone);
+      }
 
       operations.push({
         operationId: uuidv4(),
         type: 'replace_text',
         artifactId: context.artifact.artifactId,
-        targetId: childId,
+        targetId: textBox.id,
         actorType: 'agent',
         actorId: 'deck-rewrite-agent',
         timestamp: new Date().toISOString(),
         payload: {
           startOffset: 0,
-          endOffset: originalText.length,
+          endOffset: textBox.text.length,
           newText: rewrittenText,
-          oldText: originalText,
+          oldText: textBox.text,
         },
       });
 
-      previews.push(`"${originalText.slice(0, 40)}..." -> "${rewrittenText.slice(0, 40)}..."`);
-    }
-
-    if (operations.length === 0) {
-      throw new Error('No text boxes found on this slide to rewrite');
+      previews.push(`"${textBox.text.slice(0, 40)}..." -> "${rewrittenText.slice(0, 40)}..."`);
     }
 
     const previewText = `Rewrote ${operations.length} text box(es) in "${tone}" tone:\n${previews.join('\n')}`;

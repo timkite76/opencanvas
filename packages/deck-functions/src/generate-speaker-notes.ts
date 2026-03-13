@@ -76,7 +76,19 @@ export const generateSpeakerNotesFunction: RegisteredFunction = {
       if (text) slideTexts.push(text);
     }
 
-    const notesText = generateNotesFromSlideText(slideTexts);
+    let notesText: string;
+
+    if (context.callLlm && slideTexts.length > 0) {
+      // Real LLM call
+      const slideContent = slideTexts.join('\n\n');
+      const systemPrompt = 'You are a presentation coach. Generate speaker notes for the slide. Be natural and conversational. Return ONLY the speaker notes.';
+      const userPrompt = `Generate speaker notes for this slide:\n\n${slideContent}`;
+      notesText = await context.callLlm({ systemPrompt, userPrompt });
+      notesText = notesText.trim();
+    } else {
+      // Fallback to deterministic logic
+      notesText = generateNotesFromSlideText(slideTexts);
+    }
     const notesId = uuidv4();
 
     const op: InsertNodeOperation = {

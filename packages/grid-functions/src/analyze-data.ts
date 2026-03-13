@@ -187,76 +187,125 @@ export const analyzeDataFunction: RegisteredFunction = {
       };
     }
 
-    // Extract numeric values
-    const numbers: number[] = [];
-    const strings: string[] = [];
-    let emptyCount = 0;
-    let errorCount = 0;
+    let analysisText: string;
+    let statistics: Record<string, unknown>;
 
-    for (const cell of cells) {
-      if (cell.valueType === 'empty' || cell.rawValue === null || cell.rawValue === '') {
-        emptyCount++;
-      } else if (cell.valueType === 'error') {
-        errorCount++;
-      } else if (cell.valueType === 'number' || typeof cell.rawValue === 'number') {
-        const num = typeof cell.rawValue === 'number' ? cell.rawValue : Number(cell.rawValue);
-        if (!isNaN(num)) numbers.push(num);
-      } else if (typeof cell.rawValue === 'string') {
-        strings.push(cell.rawValue);
+    if (context.callLlm) {
+      // Real LLM call - gather data summary
+      const numbers: number[] = [];
+      const strings: string[] = [];
+      let emptyCount = 0;
+
+      for (const cell of cells) {
+        if (cell.valueType === 'empty' || cell.rawValue === null || cell.rawValue === '') {
+          emptyCount++;
+        } else if (cell.valueType === 'number' || typeof cell.rawValue === 'number') {
+          const num = typeof cell.rawValue === 'number' ? cell.rawValue : Number(cell.rawValue);
+          if (!isNaN(num)) numbers.push(num);
+        } else if (typeof cell.rawValue === 'string') {
+          strings.push(cell.rawValue);
+        }
       }
-    }
 
-    const lines: string[] = [];
-    lines.push(`Data Analysis for range ${rangeDescription}`);
-    lines.push(`${'='.repeat(40)}`);
-    lines.push(`Total cells: ${cells.length}`);
-    lines.push(`Non-empty cells: ${cells.length - emptyCount}`);
-    if (emptyCount > 0) lines.push(`Empty cells: ${emptyCount}`);
-    if (errorCount > 0) lines.push(`Error cells: ${errorCount}`);
-    if (strings.length > 0) lines.push(`Text cells: ${strings.length}`);
+      const dataDescription = `Range: ${rangeDescription}
+Total cells: ${cells.length}
+Numeric values: ${numbers.join(', ')}
+Text values: ${strings.slice(0, 10).join(', ')}${strings.length > 10 ? '...' : ''}
+Empty cells: ${emptyCount}`;
 
-    const statistics: Record<string, unknown> = {
-      totalCells: cells.length,
-      emptyCells: emptyCount,
-      errorCells: errorCount,
-      textCells: strings.length,
-      numericCells: numbers.length,
-    };
+      const systemPrompt = 'You are a data analyst. Analyze the provided data and give a brief summary with key insights. Be concise.';
+      const userPrompt = `Analyze this data:\n\n${dataDescription}`;
+      analysisText = await context.callLlm({ systemPrompt, userPrompt });
+      analysisText = analysisText.trim();
 
-    if (numbers.length > 0) {
-      const sum = numbers.reduce((a, b) => a + b, 0);
-      const avg = sum / numbers.length;
-      const min = Math.min(...numbers);
-      const max = Math.max(...numbers);
-      const stdDev = computeStandardDeviation(numbers, avg);
-      const trend = detectTrend(numbers);
-      const outliers = detectOutliers(numbers, avg, stdDev);
+      // Build basic statistics for output
+      statistics = {
+        totalCells: cells.length,
+        emptyCells: emptyCount,
+        numericCells: numbers.length,
+        textCells: strings.length,
+      };
 
-      lines.push('');
-      lines.push('Numeric Statistics:');
-      lines.push(`  Count: ${numbers.length}`);
-      lines.push(`  Sum: ${parseFloat(sum.toPrecision(10))}`);
-      lines.push(`  Average: ${parseFloat(avg.toPrecision(10))}`);
-      lines.push(`  Min: ${min}`);
-      lines.push(`  Max: ${max}`);
-      lines.push(`  Std Dev: ${parseFloat(stdDev.toPrecision(6))}`);
-      lines.push(`  Trend: ${trend}`);
+      if (numbers.length > 0) {
+        const sum = numbers.reduce((a, b) => a + b, 0);
+        const avg = sum / numbers.length;
+        statistics.sum = sum;
+        statistics.average = avg;
+        statistics.min = Math.min(...numbers);
+        statistics.max = Math.max(...numbers);
+      }
+    } else {
+      // Fallback to deterministic logic
+      const numbers: number[] = [];
+      const strings: string[] = [];
+      let emptyCount = 0;
+      let errorCount = 0;
 
-      if (outliers.length > 0) {
+      for (const cell of cells) {
+        if (cell.valueType === 'empty' || cell.rawValue === null || cell.rawValue === '') {
+          emptyCount++;
+        } else if (cell.valueType === 'error') {
+          errorCount++;
+        } else if (cell.valueType === 'number' || typeof cell.rawValue === 'number') {
+          const num = typeof cell.rawValue === 'number' ? cell.rawValue : Number(cell.rawValue);
+          if (!isNaN(num)) numbers.push(num);
+        } else if (typeof cell.rawValue === 'string') {
+          strings.push(cell.rawValue);
+        }
+      }
+
+      const lines: string[] = [];
+      lines.push(`Data Analysis for range ${rangeDescription}`);
+      lines.push(`${'='.repeat(40)}`);
+      lines.push(`Total cells: ${cells.length}`);
+      lines.push(`Non-empty cells: ${cells.length - emptyCount}`);
+      if (emptyCount > 0) lines.push(`Empty cells: ${emptyCount}`);
+      if (errorCount > 0) lines.push(`Error cells: ${errorCount}`);
+      if (strings.length > 0) lines.push(`Text cells: ${strings.length}`);
+
+      statistics = {
+        totalCells: cells.length,
+        emptyCells: emptyCount,
+        errorCells: errorCount,
+        textCells: strings.length,
+        numericCells: numbers.length,
+      };
+
+      if (numbers.length > 0) {
+        const sum = numbers.reduce((a, b) => a + b, 0);
+        const avg = sum / numbers.length;
+        const min = Math.min(...numbers);
+        const max = Math.max(...numbers);
+        const stdDev = computeStandardDeviation(numbers, avg);
+        const trend = detectTrend(numbers);
+        const outliers = detectOutliers(numbers, avg, stdDev);
+
         lines.push('');
-        lines.push(`Outliers detected (>2 std dev from mean): ${outliers.join(', ')}`);
+        lines.push('Numeric Statistics:');
+        lines.push(`  Count: ${numbers.length}`);
+        lines.push(`  Sum: ${parseFloat(sum.toPrecision(10))}`);
+        lines.push(`  Average: ${parseFloat(avg.toPrecision(10))}`);
+        lines.push(`  Min: ${min}`);
+        lines.push(`  Max: ${max}`);
+        lines.push(`  Std Dev: ${parseFloat(stdDev.toPrecision(6))}`);
+        lines.push(`  Trend: ${trend}`);
+
+        if (outliers.length > 0) {
+          lines.push('');
+          lines.push(`Outliers detected (>2 std dev from mean): ${outliers.join(', ')}`);
+        }
+
+        statistics.sum = sum;
+        statistics.average = avg;
+        statistics.min = min;
+        statistics.max = max;
+        statistics.standardDeviation = stdDev;
+        statistics.trend = trend;
+        statistics.outliers = outliers;
       }
 
-      statistics.sum = sum;
-      statistics.average = avg;
-      statistics.min = min;
-      statistics.max = max;
-      statistics.standardDeviation = stdDev;
-      statistics.trend = trend;
-      statistics.outliers = outliers;
+      analysisText = lines.join('\n');
     }
-
-    const analysisText = lines.join('\n');
 
     return {
       proposedOperations: [],

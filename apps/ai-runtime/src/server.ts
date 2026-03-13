@@ -5,6 +5,8 @@ import type { Operation, AgentActionRecord } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { FunctionResult } from '@opencanvas/function-sdk';
 import { InMemoryFunctionRegistry } from '@opencanvas/function-registry';
+import { LlmClient } from '@opencanvas/llm-client';
+import { resolveModel } from '@opencanvas/model-router';
 import {
   rewriteBlockFunction,
   completeTextFunction,
@@ -36,6 +38,84 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const registry = new InMemoryFunctionRegistry();
+const llmClient = new LlmClient();
+
+// Configuration for api-server communication
+const API_SERVER_URL = process.env.API_SERVER_URL ?? 'http://localhost:4002';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? 'internal-dev-key';
+
+// Load provider configs from api-server
+async function loadProviderConfigs() {
+  try {
+    const res = await fetch(`${API_SERVER_URL}/api/admin/providers/active`, {
+      headers: { 'X-Internal-Key': INTERNAL_API_KEY },
+    });
+    if (!res.ok) {
+      console.warn('[ai-runtime] Could not load provider configs from api-server:', res.status);
+      return;
+    }
+    const data = await res.json() as { providers: Array<{ provider: string; api_key: string; base_url?: string }> };
+    for (const p of data.providers) {
+      llmClient.addProvider({
+        provider: p.provider as 'anthropic' | 'openai',
+        apiKey: p.api_key,
+        baseUrl: p.base_url ?? undefined,
+      });
+    }
+    console.log(`[ai-runtime] Loaded ${data.providers.length} LLM provider(s)`);
+  } catch (err) {
+    console.warn('[ai-runtime] api-server not available, LLM calls will fail until providers are configured');
+  }
+}
+
+// Support env vars for standalone mode
+if (process.env.ANTHROPIC_API_KEY) {
+  llmClient.addProvider({ provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY });
+  console.log('[ai-runtime] Added Anthropic provider from env var');
+}
+if (process.env.OPENAI_API_KEY) {
+  llmClient.addProvider({ provider: 'openai', apiKey: process.env.OPENAI_API_KEY });
+  console.log('[ai-runtime] Added OpenAI provider from env var');
+}
+
+// Create callLlm function for function execution context
+function createCallLlm(functionName: string) {
+  return async (options: { systemPrompt: string; userPrompt: string; maxTokens?: number; temperature?: number }): Promise<string> => {
+    if (!llmClient.isConfigured()) {
+      throw new Error('No LLM provider configured. Add an API key in the admin panel (http://localhost:3004) or set ANTHROPIC_API_KEY / OPENAI_API_KEY env vars.');
+    }
+
+    const modelConfig = resolveModel(functionName);
+    const response = await llmClient.call({
+      provider: modelConfig.provider as 'anthropic' | 'openai',
+      model: modelConfig.modelId,
+      systemPrompt: options.systemPrompt,
+      userPrompt: options.userPrompt,
+      maxTokens: options.maxTokens ?? modelConfig.maxTokens,
+      temperature: options.temperature ?? modelConfig.temperature,
+    });
+
+    // Log usage to api-server
+    try {
+      await fetch(`${API_SERVER_URL}/api/admin/usage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': INTERNAL_API_KEY },
+        body: JSON.stringify({
+          function_name: functionName,
+          provider: response.provider,
+          model: response.model,
+          input_tokens: response.usage.inputTokens,
+          output_tokens: response.usage.outputTokens,
+          total_tokens: response.usage.totalTokens,
+        }),
+      });
+    } catch {
+      // Non-critical: don't fail the function if usage logging fails
+    }
+
+    return response.text;
+  };
+}
 registry.register(rewriteBlockFunction);
 registry.register(completeTextFunction);
 registry.register(summarizeDocumentFunction);
@@ -111,6 +191,7 @@ app.post('/ai/tasks/preview', async (req, res) => {
       selectionStart,
       selectionEnd,
       parameters,
+      callLlm: createCallLlm(taskType),
     });
 
     const taskId = uuidv4();
@@ -245,8 +326,18 @@ app.get('/ai/action-log/stats', (_req, res) => {
   });
 });
 
+// POST /admin/reload-providers - reload provider configs on demand
+app.post('/admin/reload-providers', async (_req, res) => {
+  await loadProviderConfigs();
+  res.json({ status: 'ok', providers: llmClient.getConfiguredProviders() });
+});
+
 const PORT = process.env.PORT ?? 4001;
 app.listen(PORT, () => {
   console.log(`[ai-runtime] listening on http://localhost:${PORT}`);
   console.log(`[ai-runtime] registered functions: ${registry.list().map((f) => f.name).join(', ')}`);
 });
+
+// Load provider configs on startup and periodically (every 60s)
+loadProviderConfigs();
+setInterval(loadProviderConfigs, 60_000);

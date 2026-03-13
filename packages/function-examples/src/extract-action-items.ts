@@ -65,28 +65,64 @@ export const extractActionItemsFunction: RegisteredFunction = {
   },
   execute: async (context: FunctionExecutionContext): Promise<FunctionResult> => {
     const { artifact } = context;
-    const allActionItems: string[] = [];
+    let uniqueItems: string[];
 
-    // Walk all nodes and collect action items from text content
-    for (const nodeId of Object.keys(artifact.nodes)) {
-      const node = artifact.nodes[nodeId] as WriteNode | undefined;
-      if (!node) continue;
+    if (context.callLlm) {
+      // Real LLM call - gather all document text
+      const allText: string[] = [];
+      for (const nodeId of Object.keys(artifact.nodes)) {
+        const node = artifact.nodes[nodeId] as WriteNode | undefined;
+        if (!node) continue;
 
-      if (node.type === 'paragraph' || node.type === 'list_item' || node.type === 'semantic_block') {
-        const text = getNodePlainText(node);
-        if (text) {
-          const actions = extractActionSentences(text);
-          allActionItems.push(...actions);
+        if (node.type === 'paragraph' || node.type === 'list_item' || node.type === 'semantic_block') {
+          const text = getNodePlainText(node);
+          if (text) allText.push(text);
         }
       }
-    }
 
-    if (allActionItems.length === 0) {
-      throw new Error('No action items found in the document');
-    }
+      const documentText = allText.join('\n\n');
+      if (!documentText) {
+        throw new Error('No action items found in the document');
+      }
 
-    // Deduplicate
-    const uniqueItems = [...new Set(allActionItems)];
+      const systemPrompt = 'You are a project manager. Extract all action items from the text. Return each action item on its own line, prefixed with \'- \'. Return ONLY the list.';
+      const userPrompt = `Extract action items from this text:\n\n${documentText}`;
+      const response = await context.callLlm({ systemPrompt, userPrompt });
+
+      // Parse response into array
+      uniqueItems = response
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('- '))
+        .map((line) => line.slice(2).trim())
+        .filter(Boolean);
+
+      if (uniqueItems.length === 0) {
+        throw new Error('No action items found in the document');
+      }
+    } else {
+      // Fallback to deterministic logic
+      const allActionItems: string[] = [];
+
+      for (const nodeId of Object.keys(artifact.nodes)) {
+        const node = artifact.nodes[nodeId] as WriteNode | undefined;
+        if (!node) continue;
+
+        if (node.type === 'paragraph' || node.type === 'list_item' || node.type === 'semantic_block') {
+          const text = getNodePlainText(node);
+          if (text) {
+            const actions = extractActionSentences(text);
+            allActionItems.push(...actions);
+          }
+        }
+      }
+
+      if (allActionItems.length === 0) {
+        throw new Error('No action items found in the document');
+      }
+
+      uniqueItems = [...new Set(allActionItems)];
+    }
 
     // Build insert operations: heading + list with list_items
     const rootNode = artifact.nodes[artifact.rootNodeId];

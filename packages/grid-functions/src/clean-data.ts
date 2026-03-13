@@ -170,88 +170,147 @@ export const cleanDataFunction: RegisteredFunction = {
 
     // Process column by column for capitalization detection
     const operations: SetCellValueOperation[] = [];
-    const changeDetails: string[] = [];
-    const duplicateDetails: string[] = [];
+    let changeDetails: string[] = [];
+    let duplicateDetails: string[] = [];
 
-    for (let colIdx = startColIdx; colIdx <= endColIdx; colIdx++) {
-      const colLabel = columnIndexToLabel(colIdx);
-      const colCells: CellInfo[] = [];
-
+    if (context.callLlm) {
+      // Real LLM call - gather all values and ask for cleaning
+      const allValues: Array<{ address: string; id: string; value: string }> = [];
       for (let row = startRow; row <= endRow; row++) {
-        const addr = `${colLabel}${row}`;
-        const cell = findCellByAddress(context.artifact, addr);
-        if (cell && typeof cell.rawValue === 'string' && cell.rawValue.trim() !== '') {
-          colCells.push(cell);
+        for (let colIdx = startColIdx; colIdx <= endColIdx; colIdx++) {
+          const addr = `${columnIndexToLabel(colIdx)}${row}`;
+          const cell = findCellByAddress(context.artifact, addr);
+          if (cell && typeof cell.rawValue === 'string' && cell.rawValue.trim() !== '') {
+            allValues.push({ address: addr, id: cell.id, value: cell.rawValue });
+          }
         }
       }
 
-      if (colCells.length === 0) continue;
+      if (allValues.length > 0) {
+        const valuesStr = allValues.map((v) => `${v.address}: ${v.value}`).join('\n');
+        const systemPrompt = 'You are a data cleaning specialist. Clean the provided data values by fixing typos, standardizing formats, and removing duplicates. Return the cleaned values, one per line in format "ADDRESS: cleaned value".';
+        const userPrompt = `Clean these data values:\n\n${valuesStr}`;
 
-      // Detect capitalization style for this column
-      const stringValues = colCells
-        .filter((c) => typeof c.rawValue === 'string')
-        .map((c) => c.rawValue as string);
-      const normalizeCase = detectCapitalizationStyle(stringValues);
+        try {
+          const response = await context.callLlm({ systemPrompt, userPrompt });
 
-      // Detect duplicates
-      const valueCounts = new Map<string, string[]>();
-      for (const cell of colCells) {
-        if (typeof cell.rawValue === 'string') {
-          const normalized = cell.rawValue.trim().toLowerCase();
-          const existing = valueCounts.get(normalized) ?? [];
-          existing.push(cell.address);
-          valueCounts.set(normalized, existing);
+          // Parse response
+          const lines = response.split('\n').map((line) => line.trim()).filter(Boolean);
+          for (const line of lines) {
+            const match = /^([A-Z]+\d+):\s*(.+)$/.exec(line);
+            if (match) {
+              const [, address, cleanedValue] = match;
+              const original = allValues.find((v) => v.address === address);
+              if (original && cleanedValue !== original.value) {
+                changeDetails.push(`${address}: "${original.value}" -> "${cleanedValue}"`);
+                const op: SetCellValueOperation = {
+                  operationId: uuidv4(),
+                  type: 'set_cell_value',
+                  artifactId: context.artifact.artifactId,
+                  targetId: original.id,
+                  actorType: 'agent',
+                  actorId: 'grid-clean-data-agent',
+                  timestamp: new Date().toISOString(),
+                  payload: {
+                    rawValue: cleanedValue,
+                    previousRawValue: original.value,
+                  },
+                };
+                operations.push(op);
+              }
+            }
+          }
+        } catch (error) {
+          // Fall through to deterministic cleaning
         }
       }
+    }
 
-      for (const [value, addresses] of valueCounts) {
-        if (addresses.length > 1) {
-          duplicateDetails.push(
-            `"${value}" appears ${addresses.length} times at: ${addresses.join(', ')}`,
-          );
-        }
-      }
+    if (!context.callLlm || operations.length === 0) {
+      // Fallback to deterministic logic
+      changeDetails = [];
+      duplicateDetails = [];
 
-      // Apply cleaning
-      for (const cell of colCells) {
-        if (typeof cell.rawValue !== 'string') continue;
+      for (let colIdx = startColIdx; colIdx <= endColIdx; colIdx++) {
+        const colLabel = columnIndexToLabel(colIdx);
+        const colCells: CellInfo[] = [];
 
-        let cleaned = cell.rawValue;
-        const changes: string[] = [];
-
-        // Fix whitespace
-        const whitespaceFixed = cleanWhitespace(cleaned);
-        if (whitespaceFixed !== cleaned) {
-          changes.push('fixed whitespace');
-          cleaned = whitespaceFixed;
-        }
-
-        // Normalize capitalization
-        if (normalizeCase) {
-          const caseFixed = normalizeCase(cleaned);
-          if (caseFixed !== cleaned) {
-            changes.push('normalized capitalization');
-            cleaned = caseFixed;
+        for (let row = startRow; row <= endRow; row++) {
+          const addr = `${colLabel}${row}`;
+          const cell = findCellByAddress(context.artifact, addr);
+          if (cell && typeof cell.rawValue === 'string' && cell.rawValue.trim() !== '') {
+            colCells.push(cell);
           }
         }
 
-        if (changes.length > 0) {
-          changeDetails.push(`${cell.address}: "${cell.rawValue}" -> "${cleaned}" (${changes.join(', ')})`);
+        if (colCells.length === 0) continue;
 
-          const op: SetCellValueOperation = {
-            operationId: uuidv4(),
-            type: 'set_cell_value',
-            artifactId: context.artifact.artifactId,
-            targetId: cell.id,
-            actorType: 'agent',
-            actorId: 'grid-clean-data-agent',
-            timestamp: new Date().toISOString(),
-            payload: {
-              rawValue: cleaned,
-              previousRawValue: cell.rawValue,
-            },
-          };
-          operations.push(op);
+        // Detect capitalization style for this column
+        const stringValues = colCells
+          .filter((c) => typeof c.rawValue === 'string')
+          .map((c) => c.rawValue as string);
+        const normalizeCase = detectCapitalizationStyle(stringValues);
+
+        // Detect duplicates
+        const valueCounts = new Map<string, string[]>();
+        for (const cell of colCells) {
+          if (typeof cell.rawValue === 'string') {
+            const normalized = cell.rawValue.trim().toLowerCase();
+            const existing = valueCounts.get(normalized) ?? [];
+            existing.push(cell.address);
+            valueCounts.set(normalized, existing);
+          }
+        }
+
+        for (const [value, addresses] of valueCounts) {
+          if (addresses.length > 1) {
+            duplicateDetails.push(
+              `"${value}" appears ${addresses.length} times at: ${addresses.join(', ')}`,
+            );
+          }
+        }
+
+        // Apply cleaning
+        for (const cell of colCells) {
+          if (typeof cell.rawValue !== 'string') continue;
+
+          let cleaned = cell.rawValue;
+          const changes: string[] = [];
+
+          // Fix whitespace
+          const whitespaceFixed = cleanWhitespace(cleaned);
+          if (whitespaceFixed !== cleaned) {
+            changes.push('fixed whitespace');
+            cleaned = whitespaceFixed;
+          }
+
+          // Normalize capitalization
+          if (normalizeCase) {
+            const caseFixed = normalizeCase(cleaned);
+            if (caseFixed !== cleaned) {
+              changes.push('normalized capitalization');
+              cleaned = caseFixed;
+            }
+          }
+
+          if (changes.length > 0) {
+            changeDetails.push(`${cell.address}: "${cell.rawValue}" -> "${cleaned}" (${changes.join(', ')})`);
+
+            const op: SetCellValueOperation = {
+              operationId: uuidv4(),
+              type: 'set_cell_value',
+              artifactId: context.artifact.artifactId,
+              targetId: cell.id,
+              actorType: 'agent',
+              actorId: 'grid-clean-data-agent',
+              timestamp: new Date().toISOString(),
+              payload: {
+                rawValue: cleaned,
+                previousRawValue: cell.rawValue,
+              },
+            };
+            operations.push(op);
+          }
         }
       }
     }

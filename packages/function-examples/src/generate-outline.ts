@@ -162,7 +162,43 @@ export const generateOutlineFunction: RegisteredFunction = {
       insertParentId = firstChild.id;
     }
 
-    const outlineItems = generateOutlineStructure(topic);
+    let outlineItems: Array<{ type: 'heading' | 'paragraph'; level?: number; text: string }>;
+
+    if (context.callLlm) {
+      // Real LLM call
+      const systemPrompt = 'You are a document planner. Generate a structured outline based on the topic/text. Return each outline item on its own line with markdown heading levels (# ## ###).';
+      const userPrompt = `Generate a document outline for this topic:\n\n${topic}`;
+      const response = await context.callLlm({ systemPrompt, userPrompt });
+
+      // Parse markdown-style outline
+      outlineItems = [];
+      const lines = response.split('\n').map((line) => line.trim()).filter(Boolean);
+
+      for (const line of lines) {
+        const h1Match = /^#\s+(.+)$/.exec(line);
+        const h2Match = /^##\s+(.+)$/.exec(line);
+        const h3Match = /^###\s+(.+)$/.exec(line);
+
+        if (h1Match) {
+          outlineItems.push({ type: 'heading', level: 1, text: h1Match[1]!.trim() });
+        } else if (h2Match) {
+          outlineItems.push({ type: 'heading', level: 2, text: h2Match[1]!.trim() });
+        } else if (h3Match) {
+          outlineItems.push({ type: 'heading', level: 3, text: h3Match[1]!.trim() });
+        } else if (line && !line.startsWith('#')) {
+          // Treat as paragraph content
+          outlineItems.push({ type: 'paragraph', text: line });
+        }
+      }
+
+      if (outlineItems.length === 0) {
+        // Fallback if parsing failed
+        outlineItems = generateOutlineStructure(topic);
+      }
+    } else {
+      // Fallback to deterministic logic
+      outlineItems = generateOutlineStructure(topic);
+    }
     const operations: InsertNodeOperation[] = [];
     const previewLines: string[] = [];
 

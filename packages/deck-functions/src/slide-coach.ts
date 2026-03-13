@@ -70,7 +70,7 @@ export const slideCoachFunction: RegisteredFunction = {
     }
 
     const slideIds = rootNode.childIds ?? [];
-    const feedback: CoachFeedbackItem[] = [];
+    let feedback: CoachFeedbackItem[] = [];
 
     // Check slide count
     if (slideIds.length === 0) {
@@ -89,121 +89,173 @@ export const slideCoachFunction: RegisteredFunction = {
       };
     }
 
-    if (slideIds.length > 30) {
-      feedback.push({
-        slideId: slideIds[0]!,
-        slideIndex: 0,
-        severity: 'warning',
-        category: 'structure',
-        message: `This deck has ${slideIds.length} slides. Consider trimming to under 30 for audience engagement.`,
-      });
-    }
+    if (context.callLlm) {
+      // Real LLM call - gather deck summary
+      const deckSummary: string[] = [];
+      deckSummary.push(`Total slides: ${slideIds.length}`);
 
-    if (slideIds.length < 3) {
-      feedback.push({
-        slideId: slideIds[0]!,
-        slideIndex: 0,
-        severity: 'info',
-        category: 'structure',
-        message: `This deck only has ${slideIds.length} slide(s). Most presentations benefit from at least 3-5 slides.`,
-      });
-    }
+      for (let i = 0; i < Math.min(slideIds.length, 10); i++) {
+        const slideNode = context.artifact.nodes[slideIds[i]!] as BaseNode | undefined;
+        if (!slideNode) continue;
 
-    // Check for title slide
-    let hasTitleSlide = false;
-    const allFontSizes: number[] = [];
-
-    for (let i = 0; i < slideIds.length; i++) {
-      const slideId = slideIds[i]!;
-      const slideNode = context.artifact.nodes[slideId] as BaseNode | undefined;
-      if (!slideNode) continue;
-
-      const childIds = slideNode.childIds ?? [];
-      const textBoxes: Array<{ node: AnyNode; text: string }> = [];
-      let hasAnyContent = false;
-
-      for (const childId of childIds) {
-        const child = context.artifact.nodes[childId] as unknown as AnyNode | undefined;
-        if (!child) continue;
-        hasAnyContent = true;
-
-        if (child.type === 'textbox') {
-          const text = getNodePlainText(child);
-          textBoxes.push({ node: child, text });
-
-          // Collect font sizes
-          const content = child.content as Array<{ fontSize?: number }> | undefined;
-          if (content) {
-            for (const run of content) {
-              if (run.fontSize) allFontSizes.push(run.fontSize);
-            }
+        const childIds = slideNode.childIds ?? [];
+        const texts: string[] = [];
+        for (const childId of childIds) {
+          const child = context.artifact.nodes[childId] as unknown as AnyNode | undefined;
+          if (child?.type === 'textbox') {
+            const text = getNodePlainText(child);
+            if (text) texts.push(text);
           }
         }
-      }
 
-      // Check for empty slides
-      if (!hasAnyContent || (textBoxes.length > 0 && textBoxes.every((tb) => tb.text.trim() === ''))) {
-        feedback.push({
-          slideId,
-          slideIndex: i,
-          severity: 'warning',
-          category: 'content',
-          message: `Slide ${i + 1} appears to be empty. Add content or remove this slide.`,
-        });
-        continue;
-      }
-
-      // Check for title slide (first slide with large bold text)
-      if (i === 0) {
-        const firstBoxContent = textBoxes[0]?.node.content as Array<{ bold?: boolean; fontSize?: number }> | undefined;
-        if (firstBoxContent?.[0]?.bold && (firstBoxContent[0].fontSize ?? 0) >= 28) {
-          hasTitleSlide = true;
+        if (texts.length > 0) {
+          deckSummary.push(`Slide ${i + 1}: ${texts.join(' | ').slice(0, 100)}`);
         }
       }
 
-      // Check word count per slide
-      const slideWordCount = textBoxes.reduce((sum, tb) => sum + countWords(tb.text), 0);
-      if (slideWordCount > 150) {
-        feedback.push({
-          slideId,
-          slideIndex: i,
-          severity: 'error',
+      const systemPrompt = 'You are a presentation coach. Review this slide and give 3-5 specific, actionable suggestions to improve it. Return each suggestion on its own line prefixed with \'- \'.';
+      const userPrompt = `Review this presentation deck:\n\n${deckSummary.join('\n')}`;
+
+      try {
+        const response = await context.callLlm({ systemPrompt, userPrompt });
+        const lines = response
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('- '))
+          .map((line) => line.slice(2).trim());
+
+        feedback = lines.map((line, i) => ({
+          slideId: slideIds[0]!,
+          slideIndex: 0,
+          severity: 'info' as const,
           category: 'content',
-          message: `Slide ${i + 1} has ${slideWordCount} words. Keep slides under 150 words for readability. Consider splitting this slide.`,
-        });
-      } else if (slideWordCount > 100) {
-        feedback.push({
-          slideId,
-          slideIndex: i,
-          severity: 'warning',
-          category: 'content',
-          message: `Slide ${i + 1} has ${slideWordCount} words. This is getting text-heavy. Consider condensing.`,
-        });
+          message: line,
+        }));
+      } catch (error) {
+        // Fall through to deterministic logic
       }
     }
 
-    // Check for missing title slide
-    if (!hasTitleSlide && slideIds.length > 1) {
-      feedback.push({
-        slideId: slideIds[0]!,
-        slideIndex: 0,
-        severity: 'info',
-        category: 'structure',
-        message: 'The first slide does not appear to be a clear title slide. Consider adding a prominent title.',
-      });
-    }
+    if (!context.callLlm || feedback.length === 0) {
+      // Fallback to deterministic logic
+      feedback = [];
 
-    // Check for inconsistent font sizes
-    if (allFontSizes.length > 2) {
-      const uniqueSizes = [...new Set(allFontSizes)].sort((a, b) => a - b);
-      if (uniqueSizes.length > 4) {
+      if (slideIds.length > 30) {
         feedback.push({
           slideId: slideIds[0]!,
           slideIndex: 0,
           severity: 'warning',
-          category: 'consistency',
-          message: `The deck uses ${uniqueSizes.length} different font sizes (${uniqueSizes.join(', ')}). Stick to 2-3 sizes for a consistent look.`,
+          category: 'structure',
+          message: `This deck has ${slideIds.length} slides. Consider trimming to under 30 for audience engagement.`,
         });
+      }
+
+      if (slideIds.length < 3) {
+        feedback.push({
+          slideId: slideIds[0]!,
+          slideIndex: 0,
+          severity: 'info',
+          category: 'structure',
+          message: `This deck only has ${slideIds.length} slide(s). Most presentations benefit from at least 3-5 slides.`,
+        });
+      }
+
+      // Check for title slide
+      let hasTitleSlide = false;
+      const allFontSizes: number[] = [];
+
+      for (let i = 0; i < slideIds.length; i++) {
+        const slideId = slideIds[i]!;
+        const slideNode = context.artifact.nodes[slideId] as BaseNode | undefined;
+        if (!slideNode) continue;
+
+        const childIds = slideNode.childIds ?? [];
+        const textBoxes: Array<{ node: AnyNode; text: string }> = [];
+        let hasAnyContent = false;
+
+        for (const childId of childIds) {
+          const child = context.artifact.nodes[childId] as unknown as AnyNode | undefined;
+          if (!child) continue;
+          hasAnyContent = true;
+
+          if (child.type === 'textbox') {
+            const text = getNodePlainText(child);
+            textBoxes.push({ node: child, text });
+
+            // Collect font sizes
+            const content = child.content as Array<{ fontSize?: number }> | undefined;
+            if (content) {
+              for (const run of content) {
+                if (run.fontSize) allFontSizes.push(run.fontSize);
+              }
+            }
+          }
+        }
+
+        // Check for empty slides
+        if (!hasAnyContent || (textBoxes.length > 0 && textBoxes.every((tb) => tb.text.trim() === ''))) {
+          feedback.push({
+            slideId,
+            slideIndex: i,
+            severity: 'warning',
+            category: 'content',
+            message: `Slide ${i + 1} appears to be empty. Add content or remove this slide.`,
+          });
+          continue;
+        }
+
+        // Check for title slide (first slide with large bold text)
+        if (i === 0) {
+          const firstBoxContent = textBoxes[0]?.node.content as Array<{ bold?: boolean; fontSize?: number }> | undefined;
+          if (firstBoxContent?.[0]?.bold && (firstBoxContent[0].fontSize ?? 0) >= 28) {
+            hasTitleSlide = true;
+          }
+        }
+
+        // Check word count per slide
+        const slideWordCount = textBoxes.reduce((sum, tb) => sum + countWords(tb.text), 0);
+        if (slideWordCount > 150) {
+          feedback.push({
+            slideId,
+            slideIndex: i,
+            severity: 'error',
+            category: 'content',
+            message: `Slide ${i + 1} has ${slideWordCount} words. Keep slides under 150 words for readability. Consider splitting this slide.`,
+          });
+        } else if (slideWordCount > 100) {
+          feedback.push({
+            slideId,
+            slideIndex: i,
+            severity: 'warning',
+            category: 'content',
+            message: `Slide ${i + 1} has ${slideWordCount} words. This is getting text-heavy. Consider condensing.`,
+          });
+        }
+      }
+
+      // Check for missing title slide
+      if (!hasTitleSlide && slideIds.length > 1) {
+        feedback.push({
+          slideId: slideIds[0]!,
+          slideIndex: 0,
+          severity: 'info',
+          category: 'structure',
+          message: 'The first slide does not appear to be a clear title slide. Consider adding a prominent title.',
+        });
+      }
+
+      // Check for inconsistent font sizes
+      if (allFontSizes.length > 2) {
+        const uniqueSizes = [...new Set(allFontSizes)].sort((a, b) => a - b);
+        if (uniqueSizes.length > 4) {
+          feedback.push({
+            slideId: slideIds[0]!,
+            slideIndex: 0,
+            severity: 'warning',
+            category: 'consistency',
+            message: `The deck uses ${uniqueSizes.length} different font sizes (${uniqueSizes.join(', ')}). Stick to 2-3 sizes for a consistent look.`,
+          });
+        }
       }
     }
 

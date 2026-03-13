@@ -58,7 +58,19 @@ export const rewriteBlockFunction: RegisteredFunction = {
 
     const tone = (context.parameters.tone as string) ?? 'executive';
     const instructions = context.parameters.instructions as string | undefined;
-    const rewrittenText = rewriteText(originalText, tone, instructions);
+
+    let rewrittenText: string;
+
+    if (context.callLlm) {
+      // Real LLM call
+      const systemPrompt = 'You are a professional editor. Rewrite the given text in the specified tone. Return ONLY the rewritten text, no explanations.';
+      const userPrompt = `Rewrite the following text in ${tone} tone:\n\n${originalText}${instructions ? '\n\nAdditional instructions: ' + instructions : ''}`;
+      rewrittenText = await context.callLlm({ systemPrompt, userPrompt });
+      rewrittenText = rewrittenText.trim();
+    } else {
+      // Fallback to deterministic logic
+      rewrittenText = rewriteText(originalText, tone, instructions);
+    }
 
     const op: ReplaceTextOperation = {
       operationId: uuidv4(),
