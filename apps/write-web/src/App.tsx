@@ -51,6 +51,7 @@ export const App: React.FC = () => {
   const [completionBlockId, setCompletionBlockId] = useState<string | null>(null);
   const [completionText, setCompletionText] = useState<string>('');
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleCompletionRef = useRef<((blockId: string, text: string) => void) | null>(null);
 
   // Floating toolbar state
   const [showFloatingActions, setShowFloatingActions] = useState(false);
@@ -254,9 +255,9 @@ export const App: React.FC = () => {
       debounceTimerRef.current.set(blockId, timer);
 
       // Schedule inline completion after typing pause
-      scheduleCompletion(blockId, newText);
+      scheduleCompletionRef.current?.(blockId, newText);
     },
-    [commitBlockText, scheduleCompletion],
+    [commitBlockText],
   );
 
   const handleInsertBlockAfter = useCallback(
@@ -1250,6 +1251,7 @@ export const App: React.FC = () => {
     },
     [requestCompletion],
   );
+  scheduleCompletionRef.current = scheduleCompletion;
 
   // --- Floating Toolbar Actions ---
 
