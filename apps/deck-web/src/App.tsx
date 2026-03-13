@@ -6,6 +6,8 @@ import type { CompatibilityReport } from '@opencanvas/interop-ooxml';
 import { createPresentationService } from './services/presentation-service.js';
 import { DeckShell } from './components/DeckShell.js';
 import { CollabBar } from './components/CollabBar.js';
+import { ActionLog } from './components/ActionLog.js';
+import { FunctionBrowser } from './components/FunctionBrowser.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 
 const topBarBtnBase: React.CSSProperties = {
@@ -40,6 +42,8 @@ export const App: React.FC = () => {
   const [collabEnabled, setCollabEnabled] = useState(false);
   const [isPresenting, setIsPresenting] = useState(false);
   const [presentFromFirst, setPresentFromFirst] = useState(false);
+  const [showActionLog, setShowActionLog] = useState(false);
+  const [showFunctionBrowser, setShowFunctionBrowser] = useState(false);
 
   const collabUserName = useMemo(() => `User-${Math.random().toString(36).slice(2, 6)}`, []);
   const collabDocId = useMemo(() => 'deck-shared-doc', []);
@@ -258,6 +262,36 @@ export const App: React.FC = () => {
           {collabEnabled ? 'Collaborating' : 'Collaborate'}
         </button>
 
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+
+        <button
+          onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
+          style={showActionLog ? {
+            ...topBarBtnBase,
+            background: '#ede9fe',
+            color: '#7c3aed',
+            borderColor: '#c4b5fd',
+          } : topBarBtnBase}
+          onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.background = showActionLog ? '#ede9fe' : '#ffffff'; }}
+        >
+          AI Log
+        </button>
+        <button
+          onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
+          style={showFunctionBrowser ? {
+            ...topBarBtnBase,
+            background: '#dbeafe',
+            color: '#2563eb',
+            borderColor: '#93c5fd',
+          } : topBarBtnBase}
+          onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = showFunctionBrowser ? '#dbeafe' : '#ffffff'; }}
+        >
+          Functions
+        </button>
+
         {/* Status area - right side */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           {isDirty && (
@@ -342,6 +376,10 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Slide-out panels */}
+      <ActionLog isOpen={showActionLog} onClose={() => setShowActionLog(false)} />
+      <FunctionBrowser isOpen={showFunctionBrowser} onClose={() => setShowFunctionBrowser(false)} />
     </div>
   );
 };

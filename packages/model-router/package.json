@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./context-builder": {
+      "types": "./dist/context-builder.d.ts",
+      "import": "./dist/context-builder.js"
     }
   },
   "scripts": {
@@ -17,7 +21,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencanvas/core-types": "workspace:*"
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

@@ -6,6 +6,8 @@ import type { CompatibilityReport } from '@opencanvas/interop-ooxml';
 import { createWorkbookService } from './services/workbook-service.js';
 import { GridShell } from './components/GridShell.js';
 import { CollabBar } from './components/CollabBar.js';
+import { ActionLog } from './components/ActionLog.js';
+import { FunctionBrowser } from './components/FunctionBrowser.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 
 const MAX_UNDO_STACK = 50;
@@ -77,6 +79,8 @@ export const App: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [collabEnabled, setCollabEnabled] = useState(false);
+  const [showActionLog, setShowActionLog] = useState(false);
+  const [showFunctionBrowser, setShowFunctionBrowser] = useState(false);
 
   // Undo/redo stacks using refs to avoid stale closures
   const undoStackRef = useRef<ArtifactEnvelope<GridNode>[]>([]);
@@ -328,6 +332,23 @@ export const App: React.FC = () => {
         <ToolbarSep />
 
         <ToolbarButton
+          onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
+          active={showActionLog}
+          title="View AI action log"
+        >
+          AI Log
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
+          active={showFunctionBrowser}
+          title="Browse AI functions"
+        >
+          Functions
+        </ToolbarButton>
+
+        <ToolbarSep />
+
+        <ToolbarButton
           onClick={() => setCollabEnabled((v) => !v)}
           active={collabEnabled}
           title={collabEnabled ? 'Collaboration enabled' : 'Enable collaboration'}
@@ -393,6 +414,10 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Slide-out panels */}
+      <ActionLog isOpen={showActionLog} onClose={() => setShowActionLog(false)} />
+      <FunctionBrowser isOpen={showFunctionBrowser} onClose={() => setShowFunctionBrowser(false)} />
     </div>
   );
 };

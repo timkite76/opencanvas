@@ -14,6 +14,8 @@ import { CollabBar } from './components/CollabBar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { FindReplace } from './components/FindReplace.js';
 import { FloatingActions } from './components/FloatingActions.js';
+import { ActionLog } from './components/ActionLog.js';
+import { FunctionBrowser } from './components/FunctionBrowser.js';
 import type { FindMatch } from './components/BlockEditor.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 import { useUndoRedo } from './hooks/useUndoRedo.js';
@@ -53,6 +55,10 @@ export const App: React.FC = () => {
   // Floating toolbar state
   const [showFloatingActions, setShowFloatingActions] = useState(false);
   const [floatingActionLoading, setFloatingActionLoading] = useState(false);
+
+  // AI Log & Function Browser panels
+  const [showActionLog, setShowActionLog] = useState(false);
+  const [showFunctionBrowser, setShowFunctionBrowser] = useState(false);
 
   const undoRedo = useUndoRedo();
 
@@ -1658,6 +1664,26 @@ export const App: React.FC = () => {
           <span style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', margin: '0 4px' }} />
 
           <button
+            onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
+            style={showActionLog ? { ...topBtnBase, backgroundColor: '#ede9fe', color: '#7c3aed', borderColor: '#c4b5fd' } : topBtnBase}
+            onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            AI Log
+          </button>
+          <button
+            onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
+            style={showFunctionBrowser ? { ...topBtnBase, backgroundColor: '#dbeafe', color: '#2563eb', borderColor: '#93c5fd' } : topBtnBase}
+            onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            Functions
+          </button>
+
+          {/* Separator */}
+          <span style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', margin: '0 4px' }} />
+
+          <button
             onClick={() => setCollabEnabled((v) => !v)}
             style={collabBtnStyle}
             onMouseEnter={(e) => {
@@ -1789,6 +1815,10 @@ export const App: React.FC = () => {
           isDirty={isDirty}
         />
       )}
+
+      {/* Slide-out panels */}
+      <ActionLog isOpen={showActionLog} onClose={() => setShowActionLog(false)} />
+      <FunctionBrowser isOpen={showFunctionBrowser} onClose={() => setShowFunctionBrowser(false)} />
     </div>
   );
 };

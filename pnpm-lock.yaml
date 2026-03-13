@@ -713,6 +713,9 @@ importers:
 
   packages/model-router:
     dependencies:
+      '@opencanvas/core-model':
+        specifier: workspace:*
+        version: link:../core-model
       '@opencanvas/core-types':
         specifier: workspace:*
         version: link:../core-types

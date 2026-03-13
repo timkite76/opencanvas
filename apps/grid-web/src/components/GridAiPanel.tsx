@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { AiUsageStats } from './AiUsageStats.js';
 
 type AiTab = 'formula' | 'analyze' | 'transform';
 
@@ -723,6 +724,11 @@ export const GridAiPanel: React.FC<GridAiPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* Usage stats */}
+      <div style={{ marginTop: 'auto' }}>
+        <AiUsageStats />
+      </div>
     </div>
   );
 };

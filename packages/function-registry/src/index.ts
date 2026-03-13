@@ -15,3 +15,6 @@ export class InMemoryFunctionRegistry {
     return Array.from(this.functions.values());
   }
 }
+
+export { FunctionMarketplace } from './marketplace.js';
+export type { FunctionCategory, MarketplaceEntry } from './marketplace.js';

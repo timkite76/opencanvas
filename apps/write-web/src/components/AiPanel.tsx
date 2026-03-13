@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { CanonicalSelection } from '@opencanvas/write-editor';
 import type { Operation } from '@opencanvas/core-types';
+import { AiUsageStats } from './AiUsageStats.js';
 
 type PanelTab = 'rewrite' | 'analyze' | 'generate';
 
@@ -546,6 +547,11 @@ export const AiPanel: React.FC<AiPanelProps> = ({
           Select text in the document to use AI rewriting tools.
         </div>
       )}
+
+      {/* Usage stats */}
+      <div style={{ marginTop: 'auto' }}>
+        <AiUsageStats />
+      </div>
     </div>
   );
 };

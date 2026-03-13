@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { AiUsageStats } from './AiUsageStats.js';
 
 interface CoachFeedbackItem {
   slideId: string;
@@ -631,6 +632,11 @@ export const DeckAiPanel: React.FC<DeckAiPanelProps> = ({
             )}
           </div>
         )}
+      </div>
+
+      {/* Usage stats */}
+      <div style={{ marginTop: 'auto' }}>
+        <AiUsageStats />
       </div>
     </div>
   );

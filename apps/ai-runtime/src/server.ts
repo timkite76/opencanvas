@@ -211,6 +211,40 @@ app.post('/ai/tasks/:taskId/reject', (req, res) => {
   res.json({ taskId, status: 'rejected' });
 });
 
+// --- Action Log Endpoints ---
+
+// GET /ai/action-log - return the full action log
+app.get('/ai/action-log', (_req, res) => {
+  res.json({ actions: actionLog });
+});
+
+// GET /ai/action-log/stats - return aggregated stats
+app.get('/ai/action-log/stats', (_req, res) => {
+  const total = actionLog.length;
+  let approved = 0;
+  let rejected = 0;
+  let pending = 0;
+  const byFunction: Record<string, number> = {};
+
+  for (const entry of actionLog) {
+    if (entry.approvalState === 'approved') approved++;
+    else if (entry.approvalState === 'rejected') rejected++;
+    else if (entry.approvalState === 'pending') pending++;
+
+    for (const fc of entry.functionCalls) {
+      byFunction[fc.functionName] = (byFunction[fc.functionName] ?? 0) + 1;
+    }
+  }
+
+  res.json({
+    total,
+    approved,
+    rejected,
+    pending,
+    byFunction,
+  });
+});
+
 const PORT = process.env.PORT ?? 4001;
 app.listen(PORT, () => {
   console.log(`[ai-runtime] listening on http://localhost:${PORT}`);
