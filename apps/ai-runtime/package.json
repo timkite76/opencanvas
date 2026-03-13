@@ -16,6 +16,7 @@
     "@opencanvas/function-sdk": "workspace:*",
     "@opencanvas/function-registry": "workspace:*",
     "@opencanvas/function-examples": "workspace:*",
+    "@opencanvas/grid-functions": "workspace:*",
     "express": "^4.21.0",
     "cors": "^2.8.5",
     "uuid": "^11.0.0"

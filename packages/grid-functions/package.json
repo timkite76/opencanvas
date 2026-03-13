@@ -17,9 +17,16 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencanvas/core-types": "workspace:*"
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*",
+    "@opencanvas/function-sdk": "workspace:*",
+    "uuid": "^11.0.0"
+  },
+  "peerDependencies": {
+    "@opencanvas/function-sdk": "workspace:*"
   },
   "devDependencies": {
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.7.0"
   }
 }

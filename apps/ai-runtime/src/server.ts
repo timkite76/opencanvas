@@ -6,6 +6,7 @@ import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { FunctionResult } from '@opencanvas/function-sdk';
 import { InMemoryFunctionRegistry } from '@opencanvas/function-registry';
 import { rewriteBlockFunction } from '@opencanvas/function-examples';
+import { generateFormulaFunction, explainFormulaFunction } from '@opencanvas/grid-functions';
 
 const app = express();
 app.use(cors());
@@ -13,6 +14,8 @@ app.use(express.json({ limit: '10mb' }));
 
 const registry = new InMemoryFunctionRegistry();
 registry.register(rewriteBlockFunction);
+registry.register(generateFormulaFunction);
+registry.register(explainFormulaFunction);
 
 interface PendingTask {
   taskId: string;
