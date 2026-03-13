@@ -4,6 +4,8 @@ import type { Operation } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import { deserializeArtifact, serializeArtifact } from '@opencanvas/core-format';
 import { WriteDocumentAdapter, type CanonicalSelection, type EditableBlock } from '@opencanvas/write-editor';
+import { importDocx, exportDocx } from '@opencanvas/interop-docx';
+import type { CompatibilityReport } from '@opencanvas/interop-ooxml';
 import { SAMPLE_OCD_FILES } from './sample-data/sample-prd.js';
 import { WriteSurface } from './components/WriteSurface.js';
 import { AiPanel } from './components/AiPanel.js';
@@ -96,6 +98,50 @@ export const App: React.FC = () => {
       }
     }
   }, []);
+
+  const handleImportDocx = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.docx';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const { artifact, report } = await importDocx(new Uint8Array(arrayBuffer));
+        adapterRef.current = new WriteDocumentAdapter(artifact as ArtifactEnvelope);
+        refreshBlocks();
+        setIsLoaded(true);
+        setIsDirty(false);
+        const summary = formatCompatReport(report);
+        setStatusMessage(`Imported: ${file.name}. ${summary}`);
+      } catch (err) {
+        setStatusMessage(`Import error: ${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    };
+    input.click();
+  }, [refreshBlocks]);
+
+  const handleExportDocx = useCallback(async () => {
+    if (!adapterRef.current) return;
+    flushPendingOps();
+    try {
+      const { data, report } = await exportDocx(adapterRef.current.getArtifact());
+      const blob = new Blob([data.slice().buffer as ArrayBuffer], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'document.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+      const summary = formatCompatReport(report);
+      setStatusMessage(`Exported .docx. ${summary}`);
+    } catch (err) {
+      setStatusMessage(`Export error: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+  }, [flushPendingOps]);
 
   const commitBlockText = useCallback((blockId: string, newText: string) => {
     if (!adapterRef.current) return;
@@ -430,6 +476,12 @@ export const App: React.FC = () => {
         <button onClick={handleSave} disabled={!isLoaded} style={{ padding: '4px 12px' }}>
           Save
         </button>
+        <button onClick={handleImportDocx} style={{ padding: '4px 12px' }}>
+          Import .docx
+        </button>
+        <button onClick={handleExportDocx} disabled={!isLoaded} style={{ padding: '4px 12px' }}>
+          Export .docx
+        </button>
         {isDirty && <span style={{ color: '#e67e22' }}>Unsaved changes</span>}
         {statusMessage && <span style={{ color: '#888' }}>{statusMessage}</span>}
       </div>
@@ -485,3 +537,20 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+function formatCompatReport(report: CompatibilityReport): string {
+  const parts: string[] = [];
+  if (report.preserved.length > 0) {
+    parts.push(`Preserved: ${report.preserved.length}`);
+  }
+  if (report.approximated.length > 0) {
+    parts.push(`Approximated: ${report.approximated.join(', ')}`);
+  }
+  if (report.unsupported.length > 0) {
+    parts.push(`Unsupported: ${report.unsupported.join(', ')}`);
+  }
+  if (report.omitted.length > 0) {
+    parts.push(`Omitted: ${report.omitted.join(', ')}`);
+  }
+  return parts.join(' | ');
+}

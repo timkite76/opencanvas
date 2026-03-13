@@ -17,9 +17,14 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opencanvas/core-types": "workspace:*"
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*",
+    "@opencanvas/write-model": "workspace:*",
+    "@opencanvas/interop-ooxml": "workspace:*",
+    "uuid": "^11.0.0"
   },
   "devDependencies": {
+    "@types/uuid": "^10.0.0",
     "typescript": "^5.7.0"
   }
 }

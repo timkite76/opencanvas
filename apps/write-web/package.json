@@ -17,6 +17,8 @@
     "@opencanvas/core-format": "workspace:*",
     "@opencanvas/write-model": "workspace:*",
     "@opencanvas/write-editor": "workspace:*",
+    "@opencanvas/interop-docx": "workspace:*",
+    "@opencanvas/interop-ooxml": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "uuid": "^11.0.0"
