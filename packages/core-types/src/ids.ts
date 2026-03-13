@@ -1,0 +1,15 @@
+export type ArtifactID = string;
+export type ObjectID = string;
+export type RevisionID = string;
+export type CommentID = string;
+export type ThreadID = string;
+export type OperationID = string;
+export type AgentActionID = string;
+export type UserID = string;
+export type WorkspaceID = string;
+export type AssetID = string;
+export type FunctionCallID = string;
+export type PluginID = string;
+export type StyleID = string;
+export type ThemeID = string;
+export type ReferenceID = string;

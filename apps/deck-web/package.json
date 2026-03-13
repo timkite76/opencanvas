@@ -1,0 +1,12 @@
+{
+  "name": "@opencanvas/deck-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'placeholder'",
+    "dev": "echo 'placeholder'",
+    "typecheck": "echo 'placeholder'",
+    "clean": "rm -rf dist"
+  }
+}

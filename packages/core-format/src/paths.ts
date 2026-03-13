@@ -1,0 +1,10 @@
+export const MANIFEST_PATH = 'manifest.json';
+export const ARTIFACT_PATH = 'artifact.json';
+export const NODES_PATH = 'nodes/nodes.json';
+export const STYLES_PATH = 'styles/styles.json';
+export const THEMES_PATH = 'themes/themes.json';
+export const COMMENTS_PATH = 'comments/comments.json';
+export const AGENT_LOG_PATH = 'agent/action-log.json';
+export const REFERENCES_PATH = 'references/references.json';
+export const ASSET_INDEX_PATH = 'assets/asset-index.json';
+export const CUSTOM_PROPERTIES_PATH = 'metadata/custom-properties.json';
