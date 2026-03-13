@@ -163,6 +163,41 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     setSelectedObjectId(null);
   }, [artifact, service, onArtifactChange, undoRedo]);
 
+  const handleReorderSlide = useCallback((slideId: string, newIndex: number) => {
+    undoRedo.pushSnapshot(artifact);
+    const op: Operation = {
+      operationId: uuidv4(),
+      type: 'move_node',
+      artifactId: artifact.artifactId,
+      targetId: slideId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        newParentId: artifact.rootNodeId,
+        index: newIndex,
+      },
+    };
+    const next = service.applyOp(artifact, op);
+    onArtifactChange(next);
+  }, [artifact, service, onArtifactChange, undoRedo]);
+
+  const handleUpdateNodePatch = useCallback((nodeId: string, patch: Record<string, unknown>) => {
+    undoRedo.pushSnapshot(artifact);
+    const op: Operation = {
+      operationId: uuidv4(),
+      type: 'update_node',
+      artifactId: artifact.artifactId,
+      targetId: nodeId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        patch,
+      },
+    };
+    const next = service.applyOp(artifact, op);
+    onArtifactChange(next);
+  }, [artifact, service, onArtifactChange, undoRedo]);
+
   const handleDeleteObject = useCallback(() => {
     if (!selectedObjectId) return;
     undoRedo.pushSnapshot(artifact);
@@ -495,6 +530,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         selectedSlideId={effectiveSlideId}
         onSlideSelect={handleSlideSelect}
         onAddSlide={handleAddSlide}
+        onReorderSlide={handleReorderSlide}
       />
 
       {/* Center: Canvas + toolbar */}
@@ -541,6 +577,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
             onInsertTextBox={handleInsertTextBox}
             onInsertRectangle={handleInsertRectangle}
             onInsertEllipse={handleInsertEllipse}
+            onUpdateNodePatch={handleUpdateNodePatch}
           />
         )}
         <SlideCanvas

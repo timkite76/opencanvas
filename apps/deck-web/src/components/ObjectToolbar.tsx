@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { BaseNode } from '@opencanvas/core-types';
 
 interface ObjectToolbarProps {
@@ -9,7 +9,24 @@ interface ObjectToolbarProps {
   onInsertTextBox: () => void;
   onInsertRectangle: () => void;
   onInsertEllipse: () => void;
+  onUpdateNodePatch?: (nodeId: string, patch: Record<string, unknown>) => void;
 }
+
+const COLOR_PALETTE = [
+  { label: 'Black',       value: '#000000' },
+  { label: 'White',       value: '#ffffff' },
+  { label: 'Red',         value: '#d93025' },
+  { label: 'Orange',      value: '#e8710a' },
+  { label: 'Yellow',      value: '#f9ab00' },
+  { label: 'Green',       value: '#1e8e3e' },
+  { label: 'Blue',        value: '#1a73e8' },
+  { label: 'Purple',      value: '#9334e6' },
+  { label: 'Pink',        value: '#e52592' },
+  { label: 'Gray',        value: '#9e9e9e' },
+  { label: 'Brown',       value: '#795548' },
+  { label: 'Teal',        value: '#009688' },
+  { label: 'Transparent', value: 'transparent' },
+];
 
 const btnBase: React.CSSProperties = {
   padding: '5px 12px',
@@ -64,6 +81,109 @@ const deleteBtnHoverHandlers = {
   },
 };
 
+interface ColorPickerPopoverProps {
+  currentColor: string;
+  label: string;
+  onColorSelect: (color: string) => void;
+}
+
+const ColorPickerPopover: React.FC<ColorPickerPopoverProps> = ({ currentColor, label, onColorSelect }) => {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={popoverRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          ...btnBase,
+          gap: 6,
+          padding: '4px 8px',
+        }}
+        title={label}
+        onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f3f4'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+      >
+        <span style={{ fontSize: 11, color: '#5f6368' }}>{label}</span>
+        <span style={{
+          width: 16,
+          height: 16,
+          borderRadius: 3,
+          border: '1px solid #dadce0',
+          background: currentColor === 'transparent'
+            ? 'repeating-conic-gradient(#e0e0e0 0% 25%, #fff 0% 50%) 50% / 8px 8px'
+            : currentColor,
+          display: 'inline-block',
+          flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 8, color: '#80868b' }}>&#x25BC;</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          marginTop: 4,
+          background: '#ffffff',
+          border: '1px solid #dadce0',
+          borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          padding: 8,
+          zIndex: 100,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          gap: 4,
+          width: 160,
+        }}>
+          {COLOR_PALETTE.map((color) => {
+            const isActive = currentColor === color.value;
+            const isTransparent = color.value === 'transparent';
+            return (
+              <button
+                key={color.value}
+                onClick={() => {
+                  onColorSelect(color.value);
+                  setOpen(false);
+                }}
+                title={color.label}
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 4,
+                  border: isActive
+                    ? '2px solid #1a73e8'
+                    : '1px solid #e0e0e0',
+                  background: isTransparent
+                    ? 'repeating-conic-gradient(#e0e0e0 0% 25%, #fff 0% 50%) 50% / 8px 8px'
+                    : color.value,
+                  cursor: 'pointer',
+                  padding: 0,
+                  boxShadow: isActive ? '0 0 0 2px rgba(26, 115, 232, 0.3)' : 'none',
+                  transition: 'box-shadow 0.1s ease, border-color 0.1s ease',
+                  position: 'relative',
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
   selectedObjectId,
   node,
@@ -72,6 +192,7 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
   onInsertTextBox,
   onInsertRectangle,
   onInsertEllipse,
+  onUpdateNodePatch,
 }) => {
   const anyNode = node as unknown as Record<string, unknown> | undefined;
   const nodeType = anyNode?.type as string | undefined;
@@ -80,6 +201,26 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
   const w = anyNode?.width as number | undefined;
   const h = anyNode?.height as number | undefined;
   const hasSelection = selectedObjectId !== null;
+
+  // Current colors from the selected node
+  const currentFill = (anyNode?.fill as string) ?? 'transparent';
+  const currentStroke = (anyNode?.stroke as string) ?? 'transparent';
+  const currentTextColor = (anyNode?.textColor as string) ?? '#000000';
+
+  const handleFillChange = useCallback((color: string) => {
+    if (!selectedObjectId || !onUpdateNodePatch) return;
+    onUpdateNodePatch(selectedObjectId, { fill: color });
+  }, [selectedObjectId, onUpdateNodePatch]);
+
+  const handleStrokeChange = useCallback((color: string) => {
+    if (!selectedObjectId || !onUpdateNodePatch) return;
+    onUpdateNodePatch(selectedObjectId, { stroke: color });
+  }, [selectedObjectId, onUpdateNodePatch]);
+
+  const handleTextColorChange = useCallback((color: string) => {
+    if (!selectedObjectId || !onUpdateNodePatch) return;
+    onUpdateNodePatch(selectedObjectId, { textColor: color });
+  }, [selectedObjectId, onUpdateNodePatch]);
 
   const insertBtnStyle: React.CSSProperties = {
     ...btnBase,
@@ -92,6 +233,9 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
     cursor: 'not-allowed',
     pointerEvents: 'none' as const,
   };
+
+  const showShapeColors = hasSelection && (nodeType === 'shape' || nodeType === 'image_object');
+  const showTextColor = hasSelection && nodeType === 'textbox';
 
   return (
     <div
@@ -167,6 +311,45 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
             <span style={{ color: '#80868b' }}>{w} x {h}</span>
           )}
         </div>
+      )}
+
+      {/* Color pickers for shapes */}
+      {showShapeColors && (
+        <>
+          <div style={{ width: 1, height: 24, background: '#dadce0', margin: '0 2px' }} />
+          <ColorPickerPopover
+            label="Fill"
+            currentColor={currentFill}
+            onColorSelect={handleFillChange}
+          />
+          <ColorPickerPopover
+            label="Stroke"
+            currentColor={currentStroke}
+            onColorSelect={handleStrokeChange}
+          />
+        </>
+      )}
+
+      {/* Color pickers for textboxes */}
+      {showTextColor && (
+        <>
+          <div style={{ width: 1, height: 24, background: '#dadce0', margin: '0 2px' }} />
+          <ColorPickerPopover
+            label="Fill"
+            currentColor={currentFill}
+            onColorSelect={handleFillChange}
+          />
+          <ColorPickerPopover
+            label="Text"
+            currentColor={currentTextColor}
+            onColorSelect={handleTextColorChange}
+          />
+          <ColorPickerPopover
+            label="Stroke"
+            currentColor={currentStroke}
+            onColorSelect={handleStrokeChange}
+          />
+        </>
       )}
 
       {/* Object actions - right aligned */}

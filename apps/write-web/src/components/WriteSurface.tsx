@@ -1,6 +1,6 @@
 import React from 'react';
 import type { EditableBlock, CanonicalSelection } from '@opencanvas/write-editor';
-import { BlockEditor } from './BlockEditor.js';
+import { BlockEditor, type FindMatch } from './BlockEditor.js';
 
 interface WriteSurfaceProps {
   blocks: EditableBlock[];
@@ -13,6 +13,8 @@ interface WriteSurfaceProps {
   onDeleteBlock: (blockId: string) => void;
   onInsertListItemAfter?: (blockId: string, listType: 'bullet' | 'ordered') => void;
   onConvertToParagraph?: (blockId: string) => void;
+  findMatches?: FindMatch[];
+  currentMatchIndex?: number;
 }
 
 export const WriteSurface: React.FC<WriteSurfaceProps> = ({
@@ -26,6 +28,8 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
   onDeleteBlock,
   onInsertListItemAfter,
   onConvertToParagraph,
+  findMatches = [],
+  currentMatchIndex = -1,
 }) => {
   return (
     <div
@@ -59,6 +63,9 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
             ? { ...block, text: displayText }
             : block;
 
+          // Filter find matches for this block
+          const blockFindMatches = findMatches.filter((m) => m.blockId === block.id);
+
           return (
             <BlockEditor
               key={block.id}
@@ -71,6 +78,9 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
               onDeleteBlock={onDeleteBlock}
               onInsertListItemAfter={onInsertListItemAfter}
               onConvertToPararaph={onConvertToParagraph}
+              findMatches={blockFindMatches}
+              currentMatchIndex={currentMatchIndex}
+              allMatches={findMatches}
             />
           );
         })}

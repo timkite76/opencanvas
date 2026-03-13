@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { ObjectID, BaseNode, Operation } from '@opencanvas/core-types';
 import type { SlideNode } from '@opencanvas/deck-model';
@@ -17,6 +17,7 @@ interface SlideCanvasProps {
 
 const SLIDE_WIDTH = 960;
 const SLIDE_HEIGHT = 540;
+const SNAP_THRESHOLD = 5;
 
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -37,6 +38,11 @@ interface ResizeState {
   startY: number;
   startWidth: number;
   startHeight: number;
+}
+
+interface GuideLine {
+  orientation: 'horizontal' | 'vertical';
+  position: number; // x for vertical, y for horizontal
 }
 
 const HANDLE_SIZE = 10;
@@ -66,7 +72,6 @@ function getHandlePositions(x: number, y: number, w: number, h: number): Record<
   };
 }
 
-// Generate grid dot pattern as a data URL for the canvas background
 function createGridDotsBackground(): string {
   const spacing = 20;
   const dotRadius = 0.8;
@@ -77,6 +82,95 @@ function createGridDotsBackground(): string {
 }
 
 const GRID_DOTS_BG = createGridDotsBackground();
+
+/** Compute snap targets from other objects and canvas center */
+function computeSnapTargets(
+  objectIds: ObjectID[],
+  nodes: Record<ObjectID, BaseNode>,
+  dragObjectId: string,
+): { xTargets: number[]; yTargets: number[] } {
+  const xTargets: number[] = [0, SLIDE_WIDTH / 2, SLIDE_WIDTH];
+  const yTargets: number[] = [0, SLIDE_HEIGHT / 2, SLIDE_HEIGHT];
+
+  for (const objId of objectIds) {
+    if (objId === dragObjectId) continue;
+    const n = nodes[objId] as unknown as Record<string, unknown> | undefined;
+    if (!n) continue;
+    const ox = (n.x as number) ?? 0;
+    const oy = (n.y as number) ?? 0;
+    const ow = (n.width as number) ?? 0;
+    const oh = (n.height as number) ?? 0;
+    // edges and center
+    xTargets.push(ox, ox + ow / 2, ox + ow);
+    yTargets.push(oy, oy + oh / 2, oy + oh);
+  }
+  return { xTargets, yTargets };
+}
+
+/** Given a dragged object rect, find matching guides and snapped position */
+function snapAndGuide(
+  objX: number, objY: number, objW: number, objH: number,
+  xTargets: number[], yTargets: number[],
+): { snappedX: number; snappedY: number; guides: GuideLine[] } {
+  const guides: GuideLine[] = [];
+  let snappedX = objX;
+  let snappedY = objY;
+
+  // Object edge/center x positions
+  const objXPoints = [objX, objX + objW / 2, objX + objW];
+  const objYPoints = [objY, objY + objH / 2, objY + objH];
+
+  let bestDx = SNAP_THRESHOLD + 1;
+  let bestDy = SNAP_THRESHOLD + 1;
+
+  for (const tx of xTargets) {
+    for (const px of objXPoints) {
+      const d = Math.abs(px - tx);
+      if (d < bestDx) {
+        bestDx = d;
+        snappedX = objX + (tx - px);
+      }
+    }
+  }
+
+  for (const ty of yTargets) {
+    for (const py of objYPoints) {
+      const d = Math.abs(py - ty);
+      if (d < bestDy) {
+        bestDy = d;
+        snappedY = objY + (ty - py);
+      }
+    }
+  }
+
+  // Only apply snap if within threshold
+  if (bestDx > SNAP_THRESHOLD) snappedX = objX;
+  if (bestDy > SNAP_THRESHOLD) snappedY = objY;
+
+  // Build guide lines for snapped axes
+  if (bestDx <= SNAP_THRESHOLD) {
+    const snappedXPoints = [snappedX, snappedX + objW / 2, snappedX + objW];
+    for (const tx of xTargets) {
+      for (const px of snappedXPoints) {
+        if (Math.abs(px - tx) < 1) {
+          guides.push({ orientation: 'vertical', position: tx });
+        }
+      }
+    }
+  }
+  if (bestDy <= SNAP_THRESHOLD) {
+    const snappedYPoints = [snappedY, snappedY + objH / 2, snappedY + objH];
+    for (const ty of yTargets) {
+      for (const py of snappedYPoints) {
+        if (Math.abs(py - ty) < 1) {
+          guides.push({ orientation: 'horizontal', position: ty });
+        }
+      }
+    }
+  }
+
+  return { snappedX, snappedY, guides };
+}
 
 export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   slide,
@@ -93,6 +187,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+  const [liveDragPos, setLiveDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [activeGuides, setActiveGuides] = useState<GuideLine[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const getCanvasScale = useCallback(() => {
@@ -100,7 +196,12 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
     return canvasRef.current.getBoundingClientRect().width / SLIDE_WIDTH;
   }, []);
 
-  // Focus the canvas when a slide is loaded or selection changes
+  // Precompute snap targets when drag starts
+  const snapTargets = useMemo(() => {
+    if (!dragState) return null;
+    return computeSnapTargets(objectIds, nodes, dragState.objectId);
+  }, [dragState, objectIds, nodes]);
+
   useEffect(() => {
     if (slide && !editingObjectId) {
       canvasRef.current?.focus();
@@ -129,15 +230,11 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
 
   const handleTextBlur = useCallback((objectId: string, newText: string) => {
     setEditingObjectId(null);
-
     const node = nodes[objectId] as unknown as Record<string, unknown> | undefined;
     if (!node) return;
-
     const content = node.content as Array<{ text: string }> | undefined;
     const originalText = content?.map((r) => r.text).join('') ?? '';
-
     if (newText === originalText) return;
-
     const op: Operation = {
       operationId: uuidv4(),
       type: 'replace_text',
@@ -145,19 +242,12 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       targetId: objectId,
       actorType: 'user',
       timestamp: new Date().toISOString(),
-      payload: {
-        startOffset: 0,
-        endOffset: originalText.length,
-        newText,
-        oldText: originalText,
-      },
+      payload: { startOffset: 0, endOffset: originalText.length, newText, oldText: originalText },
     };
     onApplyOp(op);
   }, [nodes, artifactId, onApplyOp]);
 
-  // Keyboard shortcuts
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Don't handle shortcuts while editing text
     if (editingObjectId) {
       if (e.key === 'Escape') {
         setEditingObjectId(null);
@@ -165,97 +255,68 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       }
       return;
     }
-
     const isMeta = e.metaKey || e.ctrlKey;
-
-    // Escape - deselect
-    if (e.key === 'Escape') {
-      onObjectSelect(null);
-      return;
-    }
-
-    // Delete / Backspace - delete selected object
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
-      e.preventDefault();
-      onDeleteObject?.();
-      return;
-    }
-
-    // Ctrl/Cmd+D - duplicate
-    if (isMeta && e.key === 'd') {
-      e.preventDefault();
-      onDuplicateObject?.();
-      return;
-    }
-
-    // Ctrl/Cmd+A - select all (future multi-select placeholder)
-    if (isMeta && e.key === 'a') {
-      e.preventDefault();
-      // For now, just prevent default browser select-all
-      return;
-    }
-
-    // Arrow keys - nudge selected object
+    if (e.key === 'Escape') { onObjectSelect(null); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) { e.preventDefault(); onDeleteObject?.(); return; }
+    if (isMeta && e.key === 'd') { e.preventDefault(); onDuplicateObject?.(); return; }
+    if (isMeta && e.key === 'a') { e.preventDefault(); return; }
     if (selectedObjectId && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.preventDefault();
       const node = nodes[selectedObjectId] as unknown as Record<string, unknown> | undefined;
       if (!node) return;
-
       const step = e.shiftKey ? 10 : 1;
       const currentX = (node.x as number) ?? 0;
       const currentY = (node.y as number) ?? 0;
-      let newX = currentX;
-      let newY = currentY;
-
+      let newX = currentX, newY = currentY;
       switch (e.key) {
         case 'ArrowUp':    newY = Math.max(0, currentY - step); break;
         case 'ArrowDown':  newY = Math.min(SLIDE_HEIGHT, currentY + step); break;
         case 'ArrowLeft':  newX = Math.max(0, currentX - step); break;
         case 'ArrowRight': newX = Math.min(SLIDE_WIDTH, currentX + step); break;
       }
-
       if (newX !== currentX || newY !== currentY) {
         const op: Operation = {
-          operationId: uuidv4(),
-          type: 'move_object',
-          artifactId,
-          targetId: selectedObjectId,
-          actorType: 'user',
-          timestamp: new Date().toISOString(),
-          payload: {
-            x: newX,
-            y: newY,
-            previousX: currentX,
-            previousY: currentY,
-          },
+          operationId: uuidv4(), type: 'move_object', artifactId, targetId: selectedObjectId,
+          actorType: 'user', timestamp: new Date().toISOString(),
+          payload: { x: newX, y: newY, previousX: currentX, previousY: currentY },
         };
         onApplyOp(op);
       }
-      return;
     }
   }, [editingObjectId, selectedObjectId, nodes, artifactId, onApplyOp, onObjectSelect, onDeleteObject, onDuplicateObject]);
 
-  // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent, objectId: string) => {
     if (editingObjectId === objectId) return;
     e.preventDefault();
     const node = nodes[objectId] as unknown as Record<string, unknown> | undefined;
     if (!node) return;
-
     setDragState({
-      objectId,
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startObjX: (node.x as number) ?? 0,
-      startObjY: (node.y as number) ?? 0,
+      objectId, startMouseX: e.clientX, startMouseY: e.clientY,
+      startObjX: (node.x as number) ?? 0, startObjY: (node.y as number) ?? 0,
     });
+    setLiveDragPos(null);
+    setActiveGuides([]);
   }, [editingObjectId, nodes]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (dragState) {
-      return;
+    if (dragState && snapTargets) {
+      const scale = getCanvasScale();
+      const dx = (e.clientX - dragState.startMouseX) / scale;
+      const dy = (e.clientY - dragState.startMouseY) / scale;
+      const rawX = dragState.startObjX + dx;
+      const rawY = dragState.startObjY + dy;
+
+      const node = nodes[dragState.objectId] as unknown as Record<string, unknown> | undefined;
+      const objW = (node?.width as number) ?? 100;
+      const objH = (node?.height as number) ?? 50;
+
+      const { snappedX, snappedY, guides } = snapAndGuide(
+        rawX, rawY, objW, objH, snapTargets.xTargets, snapTargets.yTargets,
+      );
+      setLiveDragPos({ x: snappedX, y: snappedY });
+      setActiveGuides(guides);
     }
-  }, [dragState]);
+  }, [dragState, snapTargets, getCanvasScale, nodes]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (dragState) {
@@ -263,27 +324,33 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       const dx = (e.clientX - dragState.startMouseX) / scale;
       const dy = (e.clientY - dragState.startMouseY) / scale;
 
-      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-        const newX = Math.round(Math.max(0, Math.min(SLIDE_WIDTH, dragState.startObjX + dx)));
-        const newY = Math.round(Math.max(0, Math.min(SLIDE_HEIGHT, dragState.startObjY + dy)));
+      let finalX = dragState.startObjX + dx;
+      let finalY = dragState.startObjY + dy;
 
+      // Apply snapping on drop too
+      if (snapTargets) {
+        const node = nodes[dragState.objectId] as unknown as Record<string, unknown> | undefined;
+        const objW = (node?.width as number) ?? 100;
+        const objH = (node?.height as number) ?? 50;
+        const result = snapAndGuide(finalX, finalY, objW, objH, snapTargets.xTargets, snapTargets.yTargets);
+        finalX = result.snappedX;
+        finalY = result.snappedY;
+      }
+
+      finalX = Math.round(Math.max(0, Math.min(SLIDE_WIDTH, finalX)));
+      finalY = Math.round(Math.max(0, Math.min(SLIDE_HEIGHT, finalY)));
+
+      if (Math.abs(finalX - dragState.startObjX) > 2 || Math.abs(finalY - dragState.startObjY) > 2) {
         const op: Operation = {
-          operationId: uuidv4(),
-          type: 'move_object',
-          artifactId,
-          targetId: dragState.objectId,
-          actorType: 'user',
-          timestamp: new Date().toISOString(),
-          payload: {
-            x: newX,
-            y: newY,
-            previousX: dragState.startObjX,
-            previousY: dragState.startObjY,
-          },
+          operationId: uuidv4(), type: 'move_object', artifactId, targetId: dragState.objectId,
+          actorType: 'user', timestamp: new Date().toISOString(),
+          payload: { x: finalX, y: finalY, previousX: dragState.startObjX, previousY: dragState.startObjY },
         };
         onApplyOp(op);
       }
       setDragState(null);
+      setLiveDragPos(null);
+      setActiveGuides([]);
     }
 
     if (resizeState) {
@@ -291,13 +358,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       const dx = (e.clientX - resizeState.startMouseX) / scale;
       const dy = (e.clientY - resizeState.startMouseY) / scale;
       const handle = resizeState.handle;
-
-      let newX = resizeState.startX;
-      let newY = resizeState.startY;
-      let newW = resizeState.startWidth;
-      let newH = resizeState.startHeight;
-
-      // Horizontal adjustments
+      let newX = resizeState.startX, newY = resizeState.startY;
+      let newW = resizeState.startWidth, newH = resizeState.startHeight;
       if (handle === 'nw' || handle === 'w' || handle === 'sw') {
         newX = Math.round(Math.max(0, resizeState.startX + dx));
         newW = Math.round(Math.max(40, resizeState.startWidth - dx));
@@ -305,8 +367,6 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       if (handle === 'ne' || handle === 'e' || handle === 'se') {
         newW = Math.round(Math.max(40, resizeState.startWidth + dx));
       }
-
-      // Vertical adjustments
       if (handle === 'nw' || handle === 'n' || handle === 'ne') {
         newY = Math.round(Math.max(0, resizeState.startY + dy));
         newH = Math.round(Math.max(20, resizeState.startHeight - dy));
@@ -314,80 +374,49 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       if (handle === 'sw' || handle === 's' || handle === 'se') {
         newH = Math.round(Math.max(20, resizeState.startHeight + dy));
       }
-
-      // Build operations: move + resize if position changed, otherwise just resize
       const ops: Operation[] = [];
-
       if (newX !== resizeState.startX || newY !== resizeState.startY) {
         ops.push({
-          operationId: uuidv4(),
-          type: 'move_object',
-          artifactId,
-          targetId: resizeState.objectId,
-          actorType: 'user',
-          timestamp: new Date().toISOString(),
-          payload: {
-            x: newX,
-            y: newY,
-            previousX: resizeState.startX,
-            previousY: resizeState.startY,
-          },
+          operationId: uuidv4(), type: 'move_object', artifactId, targetId: resizeState.objectId,
+          actorType: 'user', timestamp: new Date().toISOString(),
+          payload: { x: newX, y: newY, previousX: resizeState.startX, previousY: resizeState.startY },
         });
       }
-
       ops.push({
-        operationId: uuidv4(),
-        type: 'resize_object',
-        artifactId,
-        targetId: resizeState.objectId,
-        actorType: 'user',
-        timestamp: new Date().toISOString(),
-        payload: {
-          width: newW,
-          height: newH,
-          previousWidth: resizeState.startWidth,
-          previousHeight: resizeState.startHeight,
-        },
+        operationId: uuidv4(), type: 'resize_object', artifactId, targetId: resizeState.objectId,
+        actorType: 'user', timestamp: new Date().toISOString(),
+        payload: { width: newW, height: newH, previousWidth: resizeState.startWidth, previousHeight: resizeState.startHeight },
       });
-
-      // Apply operations
-      for (const op of ops) {
-        onApplyOp(op);
-      }
-
+      for (const op of ops) { onApplyOp(op); }
       setResizeState(null);
     }
-  }, [dragState, resizeState, getCanvasScale, artifactId, onApplyOp]);
+  }, [dragState, resizeState, snapTargets, getCanvasScale, artifactId, onApplyOp, nodes]);
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, objectId: string, handle: ResizeHandle) => {
     e.stopPropagation();
     e.preventDefault();
     const node = nodes[objectId] as unknown as Record<string, unknown> | undefined;
     if (!node) return;
-
     setResizeState({
-      objectId,
-      handle,
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startX: (node.x as number) ?? 0,
-      startY: (node.y as number) ?? 0,
-      startWidth: (node.width as number) ?? 100,
-      startHeight: (node.height as number) ?? 50,
+      objectId, handle, startMouseX: e.clientX, startMouseY: e.clientY,
+      startX: (node.x as number) ?? 0, startY: (node.y as number) ?? 0,
+      startWidth: (node.width as number) ?? 100, startHeight: (node.height as number) ?? 50,
     });
   }, [nodes]);
+
+  /** Get the effective position for a node, accounting for live drag */
+  const getEffectivePos = useCallback((objId: string, nodeX: number, nodeY: number) => {
+    if (liveDragPos && dragState?.objectId === objId) {
+      return { x: liveDragPos.x, y: liveDragPos.y };
+    }
+    return { x: nodeX, y: nodeY };
+  }, [liveDragPos, dragState]);
 
   if (!slide) {
     return (
       <div style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#9e9e9e',
-        fontSize: 15,
-        fontFamily: 'system-ui, sans-serif',
-        background: '#f0f0f0',
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#9e9e9e', fontSize: 15, fontFamily: 'system-ui, sans-serif', background: '#f0f0f0',
       }}>
         No slide selected
       </div>
@@ -397,13 +426,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   return (
     <div
       style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#e8eaed',
-        padding: 32,
-        overflow: 'auto',
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#e8eaed', padding: 32, overflow: 'auto',
       }}
     >
       <div
@@ -415,26 +439,39 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
         onMouseLeave={handleMouseUp}
         onKeyDown={handleKeyDown}
         style={{
-          width: SLIDE_WIDTH,
-          height: SLIDE_HEIGHT,
-          maxWidth: '100%',
+          width: SLIDE_WIDTH, height: SLIDE_HEIGHT, maxWidth: '100%',
           background: slide.backgroundColor ?? '#ffffff',
           backgroundImage: GRID_DOTS_BG,
           boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.08)',
-          borderRadius: 2,
-          position: 'relative',
-          aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}`,
-          outline: 'none',
+          borderRadius: 2, position: 'relative',
+          aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}`, outline: 'none',
         }}
       >
+        {/* Alignment guide lines */}
+        {activeGuides.map((guide, i) => (
+          <div
+            key={`guide-${i}`}
+            style={{
+              position: 'absolute',
+              background: '#1a73e8',
+              zIndex: 20,
+              pointerEvents: 'none',
+              ...(guide.orientation === 'vertical'
+                ? { left: guide.position, top: 0, width: 1, height: SLIDE_HEIGHT }
+                : { left: 0, top: guide.position, width: SLIDE_WIDTH, height: 1 }),
+            }}
+          />
+        ))}
+
         {objectIds.map((objId) => {
           const node = nodes[objId] as unknown as Record<string, unknown> | undefined;
           if (!node) return null;
 
-          const x = (node.x as number) ?? 0;
-          const y = (node.y as number) ?? 0;
+          const rawX = (node.x as number) ?? 0;
+          const rawY = (node.y as number) ?? 0;
           const w = (node.width as number) ?? 100;
           const h = (node.height as number) ?? 50;
+          const { x, y } = getEffectivePos(objId, rawX, rawY);
           const isSelected = objId === selectedObjectId;
           const isEditing = objId === editingObjectId;
           const isHovered = objId === hoveredObjectId && !isSelected;
@@ -454,43 +491,25 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 onMouseEnter={() => setHoveredObjectId(objId)}
                 onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
-                  position: 'absolute',
-                  left: x,
-                  top: y,
-                  width: w,
-                  height: h,
-                  border: isSelected
-                    ? '2px dashed #1a73e8'
-                    : isHovered
-                      ? '1px solid rgba(26, 115, 232, 0.4)'
-                      : '1px solid transparent',
-                  cursor: isEditing ? 'text' : 'move',
-                  boxSizing: 'border-box',
-                  padding: isEditing ? 6 : 4,
-                  fontSize,
-                  fontWeight: isBold ? 700 : 400,
-                  lineHeight: 1.3,
-                  overflow: 'hidden',
-                  outline: 'none',
-                  background: isEditing
-                    ? 'rgba(255, 255, 255, 0.95)'
-                    : isSelected
-                      ? 'rgba(26, 115, 232, 0.03)'
-                      : isHovered
-                        ? 'rgba(26, 115, 232, 0.02)'
-                        : 'transparent',
+                  position: 'absolute', left: x, top: y, width: w, height: h,
+                  border: isSelected ? '2px dashed #1a73e8' : isHovered ? '1px solid rgba(26, 115, 232, 0.4)' : '1px solid transparent',
+                  cursor: isEditing ? 'text' : 'move', boxSizing: 'border-box',
+                  padding: isEditing ? 6 : 4, fontSize, fontWeight: isBold ? 700 : 400,
+                  lineHeight: 1.3, overflow: 'hidden', outline: 'none',
+                  color: (node.textColor as string) ?? undefined,
+                  background: isEditing ? 'rgba(255, 255, 255, 0.95)'
+                    : (node.fill as string | undefined) && node.fill !== 'transparent'
+                      ? (node.fill as string)
+                      : isSelected ? 'rgba(26, 115, 232, 0.03)'
+                      : isHovered ? 'rgba(26, 115, 232, 0.02)' : 'transparent',
                   borderRadius: isEditing ? 2 : 0,
                   boxShadow: isEditing ? '0 0 0 2px #1a73e8, inset 0 0 0 1px rgba(26, 115, 232, 0.1)' : 'none',
                   caretColor: '#1a73e8',
-                  transition: 'background 0.15s ease, border-color 0.15s ease',
+                  transition: dragState ? 'none' : 'background 0.15s ease, border-color 0.15s ease',
                 }}
                 contentEditable={isEditing}
                 suppressContentEditableWarning
-                onBlur={(e) => {
-                  if (isEditing) {
-                    handleTextBlur(objId, e.currentTarget.textContent ?? '');
-                  }
-                }}
+                onBlur={(e) => { if (isEditing) handleTextBlur(objId, e.currentTarget.textContent ?? ''); }}
                 onKeyDown={(e) => {
                   if (isEditing && e.key === 'Escape') {
                     setEditingObjectId(null);
@@ -514,23 +533,14 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 onMouseEnter={() => setHoveredObjectId(objId)}
                 onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
-                  position: 'absolute',
-                  left: x,
-                  top: y,
-                  width: w,
-                  height: h,
+                  position: 'absolute', left: x, top: y, width: w, height: h,
                   background: (node.fill as string) ?? '#ddd',
                   borderRadius: shapeType === 'ellipse' ? '50%' : shapeType === 'rounded_rect' ? 8 : 0,
-                  border: isSelected
-                    ? '2px dashed #1a73e8'
-                    : isHovered
-                      ? `2px solid rgba(26, 115, 232, 0.4)`
-                      : node.stroke
-                        ? `1px solid ${node.stroke}`
-                        : '1px solid transparent',
-                  cursor: 'move',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.15s ease',
+                  border: isSelected ? '2px dashed #1a73e8'
+                    : isHovered ? '2px solid rgba(26, 115, 232, 0.4)'
+                    : node.stroke ? `1px solid ${node.stroke}` : '1px solid transparent',
+                  cursor: 'move', boxSizing: 'border-box',
+                  transition: dragState ? 'none' : 'border-color 0.15s ease',
                 }}
               />
             );
@@ -545,25 +555,13 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 onMouseEnter={() => setHoveredObjectId(objId)}
                 onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
-                  position: 'absolute',
-                  left: x,
-                  top: y,
-                  width: w,
-                  height: h,
+                  position: 'absolute', left: x, top: y, width: w, height: h,
                   background: '#f5f5f5',
-                  border: isSelected
-                    ? '2px dashed #1a73e8'
-                    : isHovered
-                      ? '2px solid rgba(26, 115, 232, 0.4)'
-                      : '1px solid #e0e0e0',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  color: '#9e9e9e',
-                  cursor: 'move',
-                  boxSizing: 'border-box',
-                  transition: 'border-color 0.15s ease',
+                  border: isSelected ? '2px dashed #1a73e8'
+                    : isHovered ? '2px solid rgba(26, 115, 232, 0.4)' : '1px solid #e0e0e0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, color: '#9e9e9e', cursor: 'move', boxSizing: 'border-box',
+                  transition: dragState ? 'none' : 'border-color 0.15s ease',
                 }}
               >
                 {(node.alt as string) ?? 'Image'}
@@ -578,11 +576,11 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
         {selectedObjectId && !editingObjectId && (() => {
           const node = nodes[selectedObjectId] as unknown as Record<string, unknown> | undefined;
           if (!node) return null;
-          const x = (node.x as number) ?? 0;
-          const y = (node.y as number) ?? 0;
+          const rawX = (node.x as number) ?? 0;
+          const rawY = (node.y as number) ?? 0;
           const w = (node.width as number) ?? 100;
           const h = (node.height as number) ?? 50;
-
+          const { x, y } = getEffectivePos(selectedObjectId, rawX, rawY);
           const handles = getHandlePositions(x, y, w, h);
 
           return (Object.entries(handles) as Array<[ResizeHandle, { left: number; top: number }]>).map(([handle, pos]) => (
@@ -590,17 +588,10 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
               key={handle}
               onMouseDown={(e) => handleResizeMouseDown(e, selectedObjectId, handle)}
               style={{
-                position: 'absolute',
-                left: pos.left,
-                top: pos.top,
-                width: HANDLE_SIZE,
-                height: HANDLE_SIZE,
-                background: '#ffffff',
-                border: '2px solid #1a73e8',
-                borderRadius: '50%',
-                cursor: HANDLE_CURSORS[handle],
-                zIndex: 10,
-                boxSizing: 'border-box',
+                position: 'absolute', left: pos.left, top: pos.top,
+                width: HANDLE_SIZE, height: HANDLE_SIZE,
+                background: '#ffffff', border: '2px solid #1a73e8', borderRadius: '50%',
+                cursor: HANDLE_CURSORS[handle], zIndex: 10, boxSizing: 'border-box',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
               }}
             />

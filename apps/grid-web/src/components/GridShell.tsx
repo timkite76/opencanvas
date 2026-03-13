@@ -90,6 +90,23 @@ export const GridShell: React.FC<GridShellProps> = ({
   const [aiPreviewText, setAiPreviewText] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
+  const [freezeRows, setFreezeRows] = useState(0);
+  const [freezeCols, setFreezeCols] = useState(0);
+
+  type FreezeMode = 'none' | 'row' | 'col' | 'both';
+  const freezeMode: FreezeMode =
+    freezeRows > 0 && freezeCols > 0 ? 'both' :
+    freezeRows > 0 ? 'row' :
+    freezeCols > 0 ? 'col' : 'none';
+
+  const handleFreezeChange = useCallback((mode: FreezeMode) => {
+    switch (mode) {
+      case 'none': setFreezeRows(0); setFreezeCols(0); break;
+      case 'row': setFreezeRows(1); setFreezeCols(0); break;
+      case 'col': setFreezeRows(0); setFreezeCols(1); break;
+      case 'both': setFreezeRows(1); setFreezeCols(1); break;
+    }
+  }, []);
 
   // Derive worksheets
   const worksheets = useMemo(() => {
@@ -434,6 +451,49 @@ export const GridShell: React.FC<GridShellProps> = ({
         cellRawValue={selectedCell?.rawValue ?? null}
         onFormulaSubmit={handleFormulaSubmit}
       />
+      {/* Freeze Panes toolbar */}
+      <div
+        style={{
+          height: 28,
+          background: '#f8f9fa',
+          borderBottom: '1px solid #e2e2e2',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 8px',
+          gap: 4,
+          fontSize: 11,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          flexShrink: 0,
+          userSelect: 'none',
+        }}
+      >
+        <span style={{ color: '#5f6368', marginRight: 4, fontWeight: 500 }}>Freeze:</span>
+        {([
+          ['none', 'None'],
+          ['row', 'Top Row'],
+          ['col', 'First Column'],
+          ['both', 'Row + Column'],
+        ] as const).map(([mode, label]) => (
+          <button
+            key={mode}
+            onClick={() => handleFreezeChange(mode)}
+            style={{
+              height: 22,
+              padding: '0 8px',
+              fontSize: 11,
+              border: freezeMode === mode ? '1px solid #1a73e8' : '1px solid #dadce0',
+              borderRadius: 4,
+              background: freezeMode === mode ? '#e8f0fe' : '#fff',
+              color: freezeMode === mode ? '#1a73e8' : '#3c4043',
+              cursor: 'pointer',
+              fontWeight: freezeMode === mode ? 600 : 400,
+              fontFamily: 'inherit',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <VirtualGrid
           worksheet={activeWorksheet}
@@ -448,6 +508,8 @@ export const GridShell: React.FC<GridShellProps> = ({
           onPasteCell={handlePasteCell}
           selectionRange={selectionRange}
           onSelectionRangeChange={setSelectionRange}
+          freezeRows={freezeRows}
+          freezeCols={freezeCols}
         />
         <GridAiPanel
           selectedCellId={selectedCellId}

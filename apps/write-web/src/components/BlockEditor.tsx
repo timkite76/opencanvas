@@ -1,5 +1,11 @@
 import React, { useRef, useCallback, useState } from 'react';
-import type { EditableBlock, CanonicalSelection, TextRun, InlineMark } from '@opencanvas/write-editor';
+import type { EditableBlock, CanonicalSelection, TextRun, InlineMark, SemanticBlockKind } from '@opencanvas/write-editor';
+
+export interface FindMatch {
+  blockId: string;
+  startOffset: number;
+  endOffset: number;
+}
 
 interface BlockEditorProps {
   block: EditableBlock;
@@ -11,6 +17,9 @@ interface BlockEditorProps {
   onDeleteBlock?: (blockId: string) => void;
   onInsertListItemAfter?: (blockId: string, listType: 'bullet' | 'ordered') => void;
   onConvertToPararaph?: (blockId: string) => void;
+  findMatches?: FindMatch[];
+  currentMatchIndex?: number;
+  allMatches?: FindMatch[];
 }
 
 /**
@@ -45,6 +54,58 @@ function renderTextRun(run: TextRun, index: number): React.ReactNode {
  */
 function hasInlineMarks(runs: TextRun[]): boolean {
   return runs.some((r) => r.marks && r.marks.length > 0);
+}
+
+/**
+ * Renders text with find/replace highlights applied.
+ * Splits the text into segments, wrapping matched portions in highlight spans.
+ */
+function renderHighlightedText(
+  text: string,
+  blockMatches: FindMatch[],
+  currentMatchIndex: number,
+  allMatches: FindMatch[],
+): React.ReactNode {
+  if (blockMatches.length === 0) {
+    return text;
+  }
+
+  // Sort matches by startOffset
+  const sorted = [...blockMatches].sort((a, b) => a.startOffset - b.startOffset);
+  const segments: React.ReactNode[] = [];
+  let lastEnd = 0;
+
+  for (const match of sorted) {
+    // Add text before this match
+    if (match.startOffset > lastEnd) {
+      segments.push(text.slice(lastEnd, match.startOffset));
+    }
+
+    // Determine if this is the current active match
+    const isCurrentMatch = allMatches[currentMatchIndex] !== undefined &&
+      allMatches[currentMatchIndex].blockId === match.blockId &&
+      allMatches[currentMatchIndex].startOffset === match.startOffset &&
+      allMatches[currentMatchIndex].endOffset === match.endOffset;
+
+    const highlightStyle: React.CSSProperties = isCurrentMatch
+      ? { backgroundColor: '#ff9632', borderRadius: 2, padding: '0 1px' }
+      : { backgroundColor: '#fff176', borderRadius: 2, padding: '0 1px' };
+
+    segments.push(
+      <span key={`hl-${match.startOffset}`} style={highlightStyle}>
+        {text.slice(match.startOffset, match.endOffset)}
+      </span>,
+    );
+
+    lastEnd = match.endOffset;
+  }
+
+  // Add remaining text
+  if (lastEnd < text.length) {
+    segments.push(text.slice(lastEnd));
+  }
+
+  return <>{segments}</>;
 }
 
 /** Heading styles by level */
@@ -85,6 +146,26 @@ const LIST_MARKER_STYLE: React.CSSProperties = {
   color: '#6b7280',
 };
 
+/** Semantic block color configuration by kind */
+const SEMANTIC_BLOCK_COLORS: Record<SemanticBlockKind, { bg: string; border: string }> = {
+  requirement: { bg: '#e3f2fd', border: '#2196f3' },
+  risk: { bg: '#fce4ec', border: '#f44336' },
+  decision: { bg: '#e8f5e9', border: '#4caf50' },
+  action_item: { bg: '#fff3e0', border: '#ff9800' },
+  note: { bg: '#f5f5f5', border: '#9e9e9e' },
+  callout: { bg: '#f3e5f5', border: '#9c27b0' },
+};
+
+const SEMANTIC_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.05em',
+  textTransform: 'uppercase',
+  marginBottom: 4,
+  userSelect: 'none',
+  pointerEvents: 'none',
+};
+
 export const BlockEditor: React.FC<BlockEditorProps> = ({
   block,
   isSelected,
@@ -95,6 +176,9 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   onDeleteBlock,
   onInsertListItemAfter,
   onConvertToPararaph,
+  findMatches = [],
+  currentMatchIndex = -1,
+  allMatches = [],
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -220,10 +304,19 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   };
 
   // Determine content: render runs with marks if any marks exist, otherwise plain text
+  // If there are find matches for this block, render with highlights instead
+  const hasHighlights = findMatches.length > 0;
   const useRichRuns = hasInlineMarks(block.runs);
-  const content = useRichRuns
-    ? block.runs.map((run, i) => renderTextRun(run, i))
-    : block.text;
+
+  let content: React.ReactNode;
+  if (hasHighlights) {
+    // When highlighting search matches, use plain text with highlight spans
+    content = renderHighlightedText(block.text, findMatches, currentMatchIndex, allMatches);
+  } else if (useRichRuns) {
+    content = block.runs.map((run, i) => renderTextRun(run, i));
+  } else {
+    content = block.text;
+  }
 
   const commonProps = {
     ref: ref as React.RefObject<never>,
@@ -261,6 +354,40 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
           {...commonProps}
           style={{ minHeight: '1.4em', outline: 'none' }}
         >
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  if (block.type === 'semantic_block' && block.semanticKind) {
+    const colors = SEMANTIC_BLOCK_COLORS[block.semanticKind] ?? SEMANTIC_BLOCK_COLORS.note;
+    const label = block.semanticKind.replace('_', ' ').toUpperCase();
+
+    const semanticWrapperStyle: React.CSSProperties = {
+      borderLeft: `4px solid ${colors.border}`,
+      backgroundColor: colors.bg,
+      borderRadius: 4,
+      padding: '8px 12px',
+      margin: '6px 0',
+    };
+
+    const semanticContentStyle: React.CSSProperties = {
+      ...PARAGRAPH_STYLE,
+      minHeight: '1.4em',
+      outline: 'none',
+    };
+
+    return (
+      <div style={semanticWrapperStyle} data-semantic-kind={block.semanticKind}>
+        <div
+          style={{ ...SEMANTIC_LABEL_STYLE, color: colors.border }}
+          contentEditable={false}
+          aria-label={`${label} block`}
+        >
+          {label}
+        </div>
+        <div {...commonProps} style={semanticContentStyle}>
           {content}
         </div>
       </div>

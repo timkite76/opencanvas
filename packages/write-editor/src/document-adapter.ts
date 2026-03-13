@@ -1,19 +1,20 @@
 import type { Operation, ObjectID } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import { applyOperation, applyOperations } from '@opencanvas/core-ops';
-import type { WriteNode, HeadingNode, ParagraphNode, ListNode, ListItemNode, TextRun, InlineMark } from '@opencanvas/write-model';
+import type { WriteNode, HeadingNode, ParagraphNode, ListNode, ListItemNode, SemanticBlockNode, SemanticBlockKind, TextRun, InlineMark } from '@opencanvas/write-model';
 import { getNodePlainText } from '@opencanvas/write-model';
 
-export type { TextRun, InlineMark };
+export type { TextRun, InlineMark, SemanticBlockKind };
 
 export interface EditableBlock {
   id: ObjectID;
-  type: 'heading' | 'paragraph' | 'list_item';
+  type: 'heading' | 'paragraph' | 'list_item' | 'semantic_block';
   level?: number;
   text: string;
   runs: TextRun[];
   listType?: 'bullet' | 'ordered';
   listIndex?: number;
+  semanticKind?: SemanticBlockKind;
 }
 
 export interface CanonicalSelection {
@@ -86,6 +87,15 @@ export class WriteDocumentAdapter {
         }
       }
       return; // Already handled children above
+    } else if (node.type === 'semantic_block') {
+      const semanticNode = node as SemanticBlockNode;
+      blocks.push({
+        id: node.id,
+        type: 'semantic_block',
+        text: getNodePlainText(node),
+        runs: semanticNode.content ?? [{ text: getNodePlainText(node) }],
+        semanticKind: semanticNode.kind,
+      });
     } else if (node.type === 'list_item') {
       // A list_item without a list parent (orphan) — render as bullet by default
       const listItemNode = node as ListItemNode;

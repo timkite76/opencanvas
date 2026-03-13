@@ -12,6 +12,8 @@ import { AiPanel } from './components/AiPanel.js';
 import { Toolbar } from './components/Toolbar.js';
 import { CollabBar } from './components/CollabBar.js';
 import { StatusBar } from './components/StatusBar.js';
+import { FindReplace } from './components/FindReplace.js';
+import type { FindMatch } from './components/BlockEditor.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 import { useUndoRedo } from './hooks/useUndoRedo.js';
 
@@ -34,6 +36,13 @@ export const App: React.FC = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [collabEnabled, setCollabEnabled] = useState(false);
+
+  // Find & Replace state
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [findSearchTerm, setFindSearchTerm] = useState('');
+  const [findReplaceTerm, setFindReplaceTerm] = useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findCurrentIndex, setFindCurrentIndex] = useState(0);
 
   const undoRedo = useUndoRedo();
 
@@ -823,6 +832,165 @@ export const App: React.FC = () => {
     [refreshBlocks, collabEnabled, collab, undoRedo],
   );
 
+  // Compute find matches from current blocks and search term
+  const findMatches = useMemo((): FindMatch[] => {
+    if (!findSearchTerm || findSearchTerm.length === 0) return [];
+    const matches: FindMatch[] = [];
+    const term = findCaseSensitive ? findSearchTerm : findSearchTerm.toLowerCase();
+    for (const block of blocks) {
+      const text = findCaseSensitive ? block.text : block.text.toLowerCase();
+      let searchFrom = 0;
+      while (searchFrom < text.length) {
+        const idx = text.indexOf(term, searchFrom);
+        if (idx === -1) break;
+        matches.push({
+          blockId: block.id,
+          startOffset: idx,
+          endOffset: idx + findSearchTerm.length,
+        });
+        searchFrom = idx + 1;
+      }
+    }
+    return matches;
+  }, [blocks, findSearchTerm, findCaseSensitive]);
+
+  // Clamp current match index when matches change
+  useEffect(() => {
+    if (findMatches.length === 0) {
+      setFindCurrentIndex(0);
+    } else if (findCurrentIndex >= findMatches.length) {
+      setFindCurrentIndex(0);
+    }
+  }, [findMatches.length]);
+
+  const handleFindNext = useCallback(() => {
+    if (findMatches.length === 0) return;
+    setFindCurrentIndex((prev) => (prev + 1) % findMatches.length);
+  }, [findMatches.length]);
+
+  const handleFindPrevious = useCallback(() => {
+    if (findMatches.length === 0) return;
+    setFindCurrentIndex((prev) => (prev - 1 + findMatches.length) % findMatches.length);
+  }, [findMatches.length]);
+
+  const handleFindReplace = useCallback(() => {
+    if (!adapterRef.current || findMatches.length === 0) return;
+    const match = findMatches[findCurrentIndex];
+    if (!match) return;
+
+    const artifact = adapterRef.current.getArtifact();
+    const node = artifact.nodes[match.blockId] as { content?: { text: string }[] } | undefined;
+    if (!node?.content) return;
+
+    const oldText = node.content.map((r) => r.text).join('');
+    const before = oldText.slice(0, match.startOffset);
+    const after = oldText.slice(match.endOffset);
+    const newText = before + findReplaceTerm + after;
+
+    // Snapshot for undo
+    undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+    const op: Operation = {
+      operationId: uuidv4(),
+      type: 'replace_text',
+      artifactId: artifact.artifactId,
+      targetId: match.blockId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        startOffset: 0,
+        endOffset: oldText.length,
+        newText,
+        oldText,
+      },
+    };
+
+    adapterRef.current.applyOperation(op);
+    if (collabEnabled) {
+      collab.applyOperationToCollab(op);
+    }
+    setIsDirty(true);
+    refreshBlocks();
+  }, [findMatches, findCurrentIndex, findReplaceTerm, collabEnabled, collab, undoRedo, refreshBlocks]);
+
+  const handleFindReplaceAll = useCallback(() => {
+    if (!adapterRef.current || findMatches.length === 0) return;
+
+    // Snapshot for undo
+    undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+    // Group matches by block, process in reverse offset order to preserve positions
+    const matchesByBlock = new Map<string, FindMatch[]>();
+    for (const match of findMatches) {
+      const existing = matchesByBlock.get(match.blockId) ?? [];
+      existing.push(match);
+      matchesByBlock.set(match.blockId, existing);
+    }
+
+    const ops: Operation[] = [];
+    const artifact = adapterRef.current.getArtifact();
+
+    for (const [blockId, blockMatches] of matchesByBlock.entries()) {
+      const node = artifact.nodes[blockId] as { content?: { text: string }[] } | undefined;
+      if (!node?.content) continue;
+
+      const oldText = node.content.map((r) => r.text).join('');
+      // Apply replacements from end to start so offsets remain valid
+      const sorted = [...blockMatches].sort((a, b) => b.startOffset - a.startOffset);
+      let newText = oldText;
+      for (const match of sorted) {
+        newText = newText.slice(0, match.startOffset) + findReplaceTerm + newText.slice(match.endOffset);
+      }
+
+      ops.push({
+        operationId: uuidv4(),
+        type: 'replace_text',
+        artifactId: artifact.artifactId,
+        targetId: blockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: {
+          startOffset: 0,
+          endOffset: oldText.length,
+          newText,
+          oldText,
+        },
+      });
+    }
+
+    if (ops.length === 1) {
+      adapterRef.current.applyOperation(ops[0]);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(ops[0]);
+      }
+    } else if (ops.length > 1) {
+      const batchOp: Operation = {
+        operationId: uuidv4(),
+        type: 'batch',
+        artifactId: artifact.artifactId,
+        targetId: ops[0].targetId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: { operations: ops },
+      };
+      adapterRef.current.applyOperation(batchOp);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(batchOp);
+      }
+    }
+
+    setIsDirty(true);
+    setFindCurrentIndex(0);
+    refreshBlocks();
+  }, [findMatches, findReplaceTerm, collabEnabled, collab, undoRedo, refreshBlocks]);
+
+  const handleCloseFindReplace = useCallback(() => {
+    setShowFindReplace(false);
+    setFindSearchTerm('');
+    setFindReplaceTerm('');
+    setFindCurrentIndex(0);
+  }, []);
+
   const handleUndo = useCallback(() => {
     if (!adapterRef.current) return;
     // Save current state to redo stack
@@ -960,6 +1128,13 @@ export const App: React.FC = () => {
     (e: React.KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
       if (!isMod) return;
+
+      // Ctrl/Cmd+F: Find & Replace
+      if (e.key === 'f') {
+        e.preventDefault();
+        setShowFindReplace(true);
+        return;
+      }
 
       // Ctrl/Cmd+S: Save
       if (e.key === 's') {
@@ -1140,6 +1315,25 @@ export const App: React.FC = () => {
         />
       )}
 
+      {/* Find & Replace panel */}
+      {showFindReplace && isLoaded && (
+        <FindReplace
+          searchTerm={findSearchTerm}
+          replaceTerm={findReplaceTerm}
+          caseSensitive={findCaseSensitive}
+          matchCount={findMatches.length}
+          currentMatchIndex={findCurrentIndex}
+          onSearchChange={setFindSearchTerm}
+          onReplaceChange={setFindReplaceTerm}
+          onCaseSensitiveToggle={() => setFindCaseSensitive((v) => !v)}
+          onFindNext={handleFindNext}
+          onFindPrevious={handleFindPrevious}
+          onReplace={handleFindReplace}
+          onReplaceAll={handleFindReplaceAll}
+          onClose={handleCloseFindReplace}
+        />
+      )}
+
       {/* Toolbar */}
       {isLoaded && (
         <Toolbar
@@ -1168,6 +1362,8 @@ export const App: React.FC = () => {
               onDeleteBlock={handleDeleteBlock}
               onInsertListItemAfter={handleInsertListItemAfter}
               onConvertToParagraph={handleConvertToParagraph}
+              findMatches={showFindReplace ? findMatches : undefined}
+              currentMatchIndex={showFindReplace ? findCurrentIndex : undefined}
             />
           ) : (
             <div
