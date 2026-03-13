@@ -7,6 +7,7 @@ interface BlockEditorProps {
   onTextChange: (blockId: string, newText: string) => void;
   onSelectionChange: (selection: CanonicalSelection | null) => void;
   onFocus: (blockId: string) => void;
+  onInsertBlockAfter: (blockId: string) => void;
 }
 
 export const BlockEditor: React.FC<BlockEditorProps> = ({
@@ -15,6 +16,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   onTextChange,
   onSelectionChange,
   onFocus,
+  onInsertBlockAfter,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -23,6 +25,16 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     const newText = ref.current.textContent ?? '';
     onTextChange(block.id, newText);
   }, [block.id, onTextChange]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        onInsertBlockAfter(block.id);
+      }
+    },
+    [block.id, onInsertBlockAfter],
+  );
 
   const handleSelect = useCallback(() => {
     const sel = window.getSelection();
@@ -70,9 +82,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     contentEditable: true,
     suppressContentEditableWarning: true,
     onInput: handleInput,
+    onKeyDown: handleKeyDown,
     onSelect: handleSelect,
     onFocus: handleFocus,
     style,
+    'data-block-id': block.id,
   };
 
   if (block.type === 'heading') {

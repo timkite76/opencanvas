@@ -1,21 +1,25 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import type { EditableBlock, CanonicalSelection } from '@opencanvas/write-editor';
 import { BlockEditor } from './BlockEditor.js';
 
 interface WriteSurfaceProps {
   blocks: EditableBlock[];
   focusedBlockId: string | null;
+  localTextOverrides: Map<string, string>;
   onBlockTextChange: (blockId: string, newText: string) => void;
   onSelectionChange: (selection: CanonicalSelection | null) => void;
   onBlockFocus: (blockId: string) => void;
+  onInsertBlockAfter: (blockId: string) => void;
 }
 
 export const WriteSurface: React.FC<WriteSurfaceProps> = ({
   blocks,
   focusedBlockId,
+  localTextOverrides,
   onBlockTextChange,
   onSelectionChange,
   onBlockFocus,
+  onInsertBlockAfter,
 }) => {
   return (
     <div
@@ -27,16 +31,27 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
         lineHeight: 1.7,
       }}
     >
-      {blocks.map((block) => (
-        <BlockEditor
-          key={block.id}
-          block={block}
-          isSelected={block.id === focusedBlockId}
-          onTextChange={onBlockTextChange}
-          onSelectionChange={onSelectionChange}
-          onFocus={onBlockFocus}
-        />
-      ))}
+      {blocks.map((block) => {
+        // Use local text override if available (during debounce), otherwise adapter text
+        const displayText = localTextOverrides.has(block.id)
+          ? localTextOverrides.get(block.id)!
+          : block.text;
+        const displayBlock = displayText !== block.text
+          ? { ...block, text: displayText }
+          : block;
+
+        return (
+          <BlockEditor
+            key={block.id}
+            block={displayBlock}
+            isSelected={block.id === focusedBlockId}
+            onTextChange={onBlockTextChange}
+            onSelectionChange={onSelectionChange}
+            onFocus={onBlockFocus}
+            onInsertBlockAfter={onInsertBlockAfter}
+          />
+        );
+      })}
     </div>
   );
 };
