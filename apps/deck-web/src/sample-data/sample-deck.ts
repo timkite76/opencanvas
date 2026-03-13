@@ -13,7 +13,7 @@ const NOTES_1_ID = 'notes-s1';
 export const SAMPLE_DECK: ArtifactEnvelope<DeckNode> = {
   artifactId: 'deck-sample-001',
   artifactType: 'presentation',
-  title: 'OpenCanvas Overview',
+  title: 'Product Overview',
   version: { major: 0, minor: 1, patch: 0 },
   createdAt: '2026-03-13T00:00:00.000Z',
   updatedAt: '2026-03-13T00:00:00.000Z',
@@ -44,7 +44,7 @@ export const SAMPLE_DECK: ArtifactEnvelope<DeckNode> = {
       y: 40,
       width: 840,
       height: 80,
-      content: [{ text: 'OpenCanvas Overview', bold: true, fontSize: 36 }],
+      content: [{ text: 'Product Overview', bold: true, fontSize: 36 }],
     },
     [BODY_BOX_1_ID]: {
       id: BODY_BOX_1_ID,
@@ -60,7 +60,7 @@ export const SAMPLE_DECK: ArtifactEnvelope<DeckNode> = {
       id: NOTES_1_ID,
       type: 'speaker_notes',
       parentId: SLIDE_1_ID,
-      content: [{ text: 'Welcome the audience and introduce the OpenCanvas platform. Highlight the AI-native approach.' }],
+      content: [{ text: 'Welcome the audience and introduce the platform. Highlight the AI-native approach.' }],
     },
     [TITLE_BOX_2_ID]: {
       id: TITLE_BOX_2_ID,

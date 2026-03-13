@@ -248,7 +248,7 @@ export const App: React.FC = () => {
             OC
           </div>
           <span style={{ fontWeight: 500, color: '#202124', fontSize: 15 }}>
-            OpenCanvas Grid
+            Grid
           </span>
         </div>
 
@@ -291,8 +291,8 @@ export const App: React.FC = () => {
           flexWrap: 'wrap',
         }}
       >
-        <ToolbarButton onClick={handleOpen} title="Open sample workbook">
-          Open Sample
+        <ToolbarButton onClick={handleOpen} title="New workbook">
+          New
         </ToolbarButton>
         <ToolbarButton onClick={handleSave} disabled={!artifact} title="Save (Ctrl+S)">
           Save
@@ -407,10 +407,10 @@ export const App: React.FC = () => {
             OC
           </div>
           <div style={{ fontSize: 16, fontWeight: 500, color: '#202124' }}>
-            OpenCanvas Grid
+            Grid
           </div>
           <div style={{ fontSize: 13, color: '#5f6368' }}>
-            Click &quot;Open Sample&quot; to load a workbook, or import an .xlsx file
+            Click &quot;New&quot; to create a workbook, or import an .xlsx file
           </div>
         </div>
       )}

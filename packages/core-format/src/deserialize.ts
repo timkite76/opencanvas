@@ -1,5 +1,5 @@
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
-import type { OpenCanvasManifest } from './manifest.js';
+import type { OcdManifest } from './manifest.js';
 import { assertSupportedFormatVersion } from './versioning.js';
 import { FormatError } from './errors.js';
 import * as paths from './paths.js';
@@ -10,8 +10,8 @@ export function deserializeArtifact(files: Record<string, string>): ArtifactEnve
     throw new FormatError('Missing manifest.json', paths.MANIFEST_PATH);
   }
 
-  const manifest: OpenCanvasManifest = JSON.parse(manifestRaw);
-  if (manifest.format !== 'OpenCanvas') {
+  const manifest: OcdManifest = JSON.parse(manifestRaw);
+  if (manifest.format !== 'ocd') {
     throw new FormatError(`Invalid format: "${manifest.format}"`, paths.MANIFEST_PATH);
   }
   assertSupportedFormatVersion(manifest.version);

@@ -1,8 +1,8 @@
 import type { ArtifactType } from '@opencanvas/core-types';
 import * as paths from './paths.js';
 
-export interface OpenCanvasManifest {
-  format: 'OpenCanvas';
+export interface OcdManifest {
+  format: 'ocd';
   artifactType: ArtifactType;
   version: string;
   entry: string;
@@ -16,9 +16,9 @@ export interface OpenCanvasManifest {
   customPropertiesIndex: string;
 }
 
-export function createManifest(artifactType: ArtifactType, version: string): OpenCanvasManifest {
+export function createManifest(artifactType: ArtifactType, version: string): OcdManifest {
   return {
-    format: 'OpenCanvas',
+    format: 'ocd',
     artifactType,
     version,
     entry: paths.ARTIFACT_PATH,

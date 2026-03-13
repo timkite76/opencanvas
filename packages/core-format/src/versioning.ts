@@ -1,4 +1,4 @@
-export const OPEN_CANVAS_FORMAT_NAME = 'OpenCanvas';
+export const OCD_FORMAT_NAME = 'ocd';
 export const CURRENT_FORMAT_VERSION = '0.1.0';
 
 export function assertSupportedFormatVersion(version: string): void {

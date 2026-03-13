@@ -1590,7 +1590,7 @@ export const App: React.FC = () => {
             letterSpacing: '-0.01em',
             whiteSpace: 'nowrap',
           }}>
-            OpenCanvas Write
+            Write
           </span>
           {isLoaded && (
             <span style={{
@@ -1633,7 +1633,7 @@ export const App: React.FC = () => {
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
-            Open
+            New
           </button>
           <button
             onClick={handleSave}
@@ -1778,7 +1778,7 @@ export const App: React.FC = () => {
             >
               <span style={{ fontSize: 36, opacity: 0.3 }}>&#x1F4DD;</span>
               <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280' }}>No document open</span>
-              <span style={{ fontSize: 13 }}>Click "Open" to load a sample document, or "Import" to open a .docx file</span>
+              <span style={{ fontSize: 13 }}>Click "New" to create a document, or "Import" to open a .docx file</span>
             </div>
           )}
         </div>

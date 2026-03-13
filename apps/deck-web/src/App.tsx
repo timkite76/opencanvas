@@ -163,7 +163,7 @@ export const App: React.FC = () => {
             D
           </div>
           <span style={{ fontWeight: 600, color: '#202124', fontSize: 15 }}>
-            OpenCanvas Deck
+            Deck
           </span>
         </div>
 
@@ -177,7 +177,7 @@ export const App: React.FC = () => {
           onMouseEnter={(e) => e.currentTarget.style.background = '#1557b0'}
           onMouseLeave={(e) => e.currentTarget.style.background = '#1a73e8'}
         >
-          Open Sample
+          New
         </button>
         <button
           onClick={handleSave}
@@ -369,7 +369,7 @@ export const App: React.FC = () => {
             D
           </div>
           <div style={{ fontSize: 16, fontWeight: 500 }}>
-            Click "Open Sample" to load a presentation
+            Click "New" to create a presentation
           </div>
           <div style={{ fontSize: 13, color: '#80868b' }}>
             Or import a .pptx file to get started

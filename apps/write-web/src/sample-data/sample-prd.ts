@@ -2,7 +2,7 @@ import type { ArtifactEnvelope } from '@opencanvas/core-model';
 
 export const SAMPLE_OCD_FILES: Record<string, string> = {
   'manifest.json': JSON.stringify({
-    format: 'OpenCanvas',
+    format: 'ocd',
     artifactType: 'document',
     version: '0.1.0',
     entry: 'artifact.json',
@@ -50,7 +50,7 @@ export const SAMPLE_OCD_FILES: Record<string, string> = {
       parentId: 'section-1',
       content: [
         {
-          text: 'This document outlines the core requirements for the OpenCanvas productivity suite. The suite includes three AI-native editors for documents, spreadsheets, and presentations. Each editor operates on a canonical internal model with structured operations that support both human editing and AI-assisted workflows.',
+          text: 'This document outlines the core requirements for the productivity suite. The suite includes three AI-native editors for documents, spreadsheets, and presentations. Each editor operates on a canonical internal model with structured operations that support both human editing and AI-assisted workflows.',
         },
       ],
     },

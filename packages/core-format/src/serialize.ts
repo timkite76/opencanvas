@@ -1,11 +1,11 @@
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
-import type { OpenCanvasManifest } from './manifest.js';
+import type { OcdManifest } from './manifest.js';
 import { createManifest } from './manifest.js';
 import { CURRENT_FORMAT_VERSION } from './versioning.js';
 import * as paths from './paths.js';
 
 export interface SerializedPackage {
-  manifest: OpenCanvasManifest;
+  manifest: OcdManifest;
   files: Record<string, string>;
 }
 
