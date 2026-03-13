@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Operation } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { DeckNode, SlideNode } from '@opencanvas/deck-model';
 import { buildSlideIndex } from '@opencanvas/deck-model';
 import type { PresentationService } from '../services/presentation-service.js';
+import { useUndoRedoManager } from '../hooks/useUndoRedo.js';
 import { SlideThumbnailPane } from './SlideThumbnailPane.js';
 import { SlideCanvas } from './SlideCanvas.js';
 import { ObjectToolbar } from './ObjectToolbar.js';
@@ -14,6 +15,7 @@ interface DeckShellProps {
   artifact: ArtifactEnvelope<DeckNode>;
   service: PresentationService;
   onArtifactChange: (artifact: ArtifactEnvelope<DeckNode>) => void;
+  onSave?: () => void;
 }
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
@@ -22,12 +24,15 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   artifact,
   service,
   onArtifactChange,
+  onSave,
 }) => {
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiPreviewText, setAiPreviewText] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+
+  const undoRedo = useUndoRedoManager();
 
   const slideIndex = useMemo(() => buildSlideIndex(artifact.nodes, artifact.rootNodeId), [artifact.nodes, artifact.rootNodeId]);
 
@@ -53,13 +58,30 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   }, []);
 
   const handleApplyOp = useCallback((op: Operation) => {
+    undoRedo.pushSnapshot(artifact);
     const next = service.applyOp(artifact, op);
     onArtifactChange(next);
-  }, [artifact, service, onArtifactChange]);
+  }, [artifact, service, onArtifactChange, undoRedo]);
+
+  const handleUndo = useCallback(() => {
+    const prev = undoRedo.undo(artifact);
+    if (prev) {
+      onArtifactChange(prev);
+    }
+  }, [artifact, undoRedo, onArtifactChange]);
+
+  const handleRedo = useCallback(() => {
+    const next = undoRedo.redo(artifact);
+    if (next) {
+      onArtifactChange(next);
+    }
+  }, [artifact, undoRedo, onArtifactChange]);
 
   const handleAddSlide = useCallback(() => {
     const slideId = uuidv4();
     const titleBoxId = uuidv4();
+
+    undoRedo.pushSnapshot(artifact);
 
     const insertSlideOp: Operation = {
       operationId: uuidv4(),
@@ -104,10 +126,11 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     onArtifactChange(next);
     setSelectedSlideId(slideId);
     setSelectedObjectId(null);
-  }, [artifact, service, onArtifactChange]);
+  }, [artifact, service, onArtifactChange, undoRedo]);
 
   const handleDeleteObject = useCallback(() => {
     if (!selectedObjectId) return;
+    undoRedo.pushSnapshot(artifact);
     const deleteOp: Operation = {
       operationId: uuidv4(),
       type: 'delete_node',
@@ -119,7 +142,173 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     const next = service.applyOp(artifact, deleteOp);
     onArtifactChange(next);
     setSelectedObjectId(null);
-  }, [selectedObjectId, artifact, service, onArtifactChange]);
+  }, [selectedObjectId, artifact, service, onArtifactChange, undoRedo]);
+
+  const handleDuplicateObject = useCallback(() => {
+    if (!selectedObjectId || !effectiveSlideId) return;
+    const node = artifact.nodes[selectedObjectId] as unknown as Record<string, unknown> | undefined;
+    if (!node) return;
+
+    undoRedo.pushSnapshot(artifact);
+
+    const newId = uuidv4();
+    const newNode: Record<string, unknown> & { id: string; type: string } = {
+      ...node,
+      id: newId,
+      x: ((node.x as number) ?? 0) + 20,
+      y: ((node.y as number) ?? 0) + 20,
+    } as Record<string, unknown> & { id: string; type: string };
+
+    // Remove parentId/childIds to avoid stale references
+    delete newNode.parentId;
+    if (node.type !== 'slide') {
+      delete newNode.childIds;
+    }
+
+    const insertOp: Operation = {
+      operationId: uuidv4(),
+      type: 'insert_node',
+      artifactId: artifact.artifactId,
+      targetId: newId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        node: newNode,
+        parentId: effectiveSlideId,
+      },
+    };
+
+    const next = service.applyOp(artifact, insertOp);
+    onArtifactChange(next);
+    setSelectedObjectId(newId);
+  }, [selectedObjectId, effectiveSlideId, artifact, service, onArtifactChange, undoRedo]);
+
+  // Insert handlers
+  const handleInsertTextBox = useCallback(() => {
+    if (!effectiveSlideId) return;
+    undoRedo.pushSnapshot(artifact);
+
+    const newId = uuidv4();
+    const insertOp: Operation = {
+      operationId: uuidv4(),
+      type: 'insert_node',
+      artifactId: artifact.artifactId,
+      targetId: newId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        node: {
+          id: newId,
+          type: 'textbox',
+          x: 280,
+          y: 200,
+          width: 400,
+          height: 100,
+          content: [{ text: 'Text', fontSize: 16 }],
+        } as Record<string, unknown> & { id: string; type: string },
+        parentId: effectiveSlideId,
+      },
+    };
+
+    const next = service.applyOp(artifact, insertOp);
+    onArtifactChange(next);
+    setSelectedObjectId(newId);
+  }, [effectiveSlideId, artifact, service, onArtifactChange, undoRedo]);
+
+  const handleInsertRectangle = useCallback(() => {
+    if (!effectiveSlideId) return;
+    undoRedo.pushSnapshot(artifact);
+
+    const newId = uuidv4();
+    const insertOp: Operation = {
+      operationId: uuidv4(),
+      type: 'insert_node',
+      artifactId: artifact.artifactId,
+      targetId: newId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        node: {
+          id: newId,
+          type: 'shape',
+          shapeType: 'rectangle',
+          x: 380,
+          y: 220,
+          width: 200,
+          height: 100,
+          fill: '#e0e0e0',
+        } as Record<string, unknown> & { id: string; type: string },
+        parentId: effectiveSlideId,
+      },
+    };
+
+    const next = service.applyOp(artifact, insertOp);
+    onArtifactChange(next);
+    setSelectedObjectId(newId);
+  }, [effectiveSlideId, artifact, service, onArtifactChange, undoRedo]);
+
+  const handleInsertEllipse = useCallback(() => {
+    if (!effectiveSlideId) return;
+    undoRedo.pushSnapshot(artifact);
+
+    const newId = uuidv4();
+    const insertOp: Operation = {
+      operationId: uuidv4(),
+      type: 'insert_node',
+      artifactId: artifact.artifactId,
+      targetId: newId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        node: {
+          id: newId,
+          type: 'shape',
+          shapeType: 'ellipse',
+          x: 380,
+          y: 220,
+          width: 200,
+          height: 150,
+          fill: '#bbdefb',
+        } as Record<string, unknown> & { id: string; type: string },
+        parentId: effectiveSlideId,
+      },
+    };
+
+    const next = service.applyOp(artifact, insertOp);
+    onArtifactChange(next);
+    setSelectedObjectId(newId);
+  }, [effectiveSlideId, artifact, service, onArtifactChange, undoRedo]);
+
+  // Global keyboard handler for undo/redo/save
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      // Ctrl/Cmd+Z - undo
+      if (isMeta && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Ctrl/Cmd+Shift+Z - redo
+      if (isMeta && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // Ctrl/Cmd+S - save
+      if (isMeta && e.key === 's') {
+        e.preventDefault();
+        onSave?.();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo, onSave]);
 
   // AI handlers
   const handleAiTask = useCallback(async (taskType: string, parameters: Record<string, unknown>) => {
@@ -156,6 +345,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         method: 'POST',
       });
       const data = await response.json();
+      undoRedo.pushSnapshot(artifact);
       let next = artifact;
       for (const op of data.approvedOperations ?? []) {
         next = service.applyOp(next, op);
@@ -166,7 +356,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     } catch (err) {
       setAiPreviewText(`Approve error: ${err instanceof Error ? err.message : 'unknown'}`);
     }
-  }, [pendingTaskId, artifact, service, onArtifactChange]);
+  }, [pendingTaskId, artifact, service, onArtifactChange, undoRedo]);
 
   const handleReject = useCallback(async () => {
     if (!pendingTaskId) return;
@@ -199,11 +389,54 @@ export const DeckShell: React.FC<DeckShellProps> = ({
 
       {/* Center: Canvas + toolbar */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {selectedObjectId && (
+        {/* Undo/Redo bar */}
+        <div style={{
+          padding: '4px 16px',
+          borderBottom: '1px solid #eee',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          background: '#f8f8f8',
+          fontSize: 12,
+        }}>
+          <button
+            onClick={handleUndo}
+            disabled={!undoRedo.canUndo}
+            style={{
+              padding: '2px 8px',
+              fontSize: 11,
+              cursor: undoRedo.canUndo ? 'pointer' : 'default',
+              opacity: undoRedo.canUndo ? 1 : 0.4,
+            }}
+            title="Undo (Ctrl+Z)"
+          >
+            Undo
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={!undoRedo.canRedo}
+            style={{
+              padding: '2px 8px',
+              fontSize: 11,
+              cursor: undoRedo.canRedo ? 'pointer' : 'default',
+              opacity: undoRedo.canRedo ? 1 : 0.4,
+            }}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            Redo
+          </button>
+        </div>
+
+        {/* Object toolbar - always show when a slide is selected */}
+        {effectiveSlideId && (
           <ObjectToolbar
-            objectId={selectedObjectId}
-            node={artifact.nodes[selectedObjectId]}
+            selectedObjectId={selectedObjectId}
+            node={selectedObjectId ? artifact.nodes[selectedObjectId] : undefined}
             onDelete={handleDeleteObject}
+            onDuplicate={handleDuplicateObject}
+            onInsertTextBox={handleInsertTextBox}
+            onInsertRectangle={handleInsertRectangle}
+            onInsertEllipse={handleInsertEllipse}
           />
         )}
         <SlideCanvas
@@ -214,6 +447,8 @@ export const DeckShell: React.FC<DeckShellProps> = ({
           onObjectSelect={handleObjectSelect}
           onApplyOp={handleApplyOp}
           artifactId={artifact.artifactId}
+          onDeleteObject={handleDeleteObject}
+          onDuplicateObject={handleDuplicateObject}
         />
         {activeNotes && (
           <div style={{

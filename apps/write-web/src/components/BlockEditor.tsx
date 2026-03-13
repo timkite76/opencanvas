@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import type { EditableBlock, CanonicalSelection } from '@opencanvas/write-editor';
+import type { EditableBlock, CanonicalSelection, TextRun, InlineMark } from '@opencanvas/write-editor';
 
 interface BlockEditorProps {
   block: EditableBlock;
@@ -8,6 +8,41 @@ interface BlockEditorProps {
   onSelectionChange: (selection: CanonicalSelection | null) => void;
   onFocus: (blockId: string) => void;
   onInsertBlockAfter: (blockId: string) => void;
+  onDeleteBlock?: (blockId: string) => void;
+}
+
+/**
+ * Renders a single TextRun with its inline marks applied as HTML elements.
+ */
+function renderTextRun(run: TextRun, index: number): React.ReactNode {
+  const marks = run.marks ?? [];
+  let node: React.ReactNode = run.text;
+
+  // Wrap in mark elements from innermost to outermost
+  if (marks.includes('code')) {
+    node = <code key={`code-${index}`} style={{ background: '#f0f0f0', padding: '1px 4px', borderRadius: 2, fontFamily: 'monospace', fontSize: '0.9em' }}>{node}</code>;
+  }
+  if (marks.includes('strikethrough')) {
+    node = <s>{node}</s>;
+  }
+  if (marks.includes('underline')) {
+    node = <u>{node}</u>;
+  }
+  if (marks.includes('italic')) {
+    node = <em>{node}</em>;
+  }
+  if (marks.includes('bold')) {
+    node = <strong>{node}</strong>;
+  }
+
+  return <React.Fragment key={index}>{node}</React.Fragment>;
+}
+
+/**
+ * Checks if runs have any inline marks (used to decide between plain text and rich rendering).
+ */
+function hasInlineMarks(runs: TextRun[]): boolean {
+  return runs.some((r) => r.marks && r.marks.length > 0);
 }
 
 export const BlockEditor: React.FC<BlockEditorProps> = ({
@@ -17,6 +52,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   onSelectionChange,
   onFocus,
   onInsertBlockAfter,
+  onDeleteBlock,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -28,12 +64,60 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Inline formatting shortcuts
+      if (isMod && e.key === 'b') {
+        e.preventDefault();
+        document.execCommand('bold', false);
+        return;
+      }
+      if (isMod && e.key === 'i') {
+        e.preventDefault();
+        document.execCommand('italic', false);
+        return;
+      }
+      if (isMod && e.key === 'u') {
+        e.preventDefault();
+        document.execCommand('underline', false);
+        return;
+      }
+
+      // Enter: insert new block
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         onInsertBlockAfter(block.id);
+        return;
+      }
+
+      // Backspace at start of empty block: delete block
+      if (e.key === 'Backspace' && onDeleteBlock) {
+        const el = ref.current;
+        if (!el) return;
+        const text = el.textContent ?? '';
+        if (text.length === 0) {
+          e.preventDefault();
+          onDeleteBlock(block.id);
+          return;
+        }
+        // Also handle backspace at cursor position 0
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          if (range.collapsed) {
+            const preRange = document.createRange();
+            preRange.selectNodeContents(el);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            const offset = preRange.toString().length;
+            if (offset === 0 && text.length === 0) {
+              e.preventDefault();
+              onDeleteBlock(block.id);
+            }
+          }
+        }
       }
     },
-    [block.id, onInsertBlockAfter],
+    [block.id, onInsertBlockAfter, onDeleteBlock],
   );
 
   const handleSelect = useCallback(() => {
@@ -77,6 +161,12 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     cursor: 'text',
   };
 
+  // Determine content: render runs with marks if any marks exist, otherwise plain text
+  const useRichRuns = hasInlineMarks(block.runs);
+  const content = useRichRuns
+    ? block.runs.map((run, i) => renderTextRun(run, i))
+    : block.text;
+
   const commonProps = {
     ref: ref as React.RefObject<never>,
     contentEditable: true,
@@ -91,11 +181,11 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
 
   if (block.type === 'heading') {
     const level = block.level ?? 1;
-    if (level === 1) return <h1 {...commonProps}>{block.text}</h1>;
-    if (level === 2) return <h2 {...commonProps}>{block.text}</h2>;
-    if (level === 3) return <h3 {...commonProps}>{block.text}</h3>;
-    return <h4 {...commonProps}>{block.text}</h4>;
+    if (level === 1) return <h1 {...commonProps}>{content}</h1>;
+    if (level === 2) return <h2 {...commonProps}>{content}</h2>;
+    if (level === 3) return <h3 {...commonProps}>{content}</h3>;
+    return <h4 {...commonProps}>{content}</h4>;
   }
 
-  return <p {...commonProps}>{block.text}</p>;
+  return <p {...commonProps}>{content}</p>;
 };

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { GridNode, CellNode, WorksheetNode } from '@opencanvas/grid-model';
 import { FormulaBar } from './FormulaBar.js';
@@ -11,6 +11,9 @@ interface GridShellProps {
   artifact: ArtifactEnvelope<GridNode>;
   service: WorkbookService;
   onArtifactChange: (artifact: ArtifactEnvelope<GridNode>) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onSave?: () => void;
 }
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
@@ -19,6 +22,9 @@ export const GridShell: React.FC<GridShellProps> = ({
   artifact,
   service,
   onArtifactChange,
+  onUndo,
+  onRedo,
+  onSave,
 }) => {
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
@@ -66,26 +72,98 @@ export const GridShell: React.FC<GridShellProps> = ({
   }, []);
 
   const handleCellDoubleClick = useCallback((_address: string) => {
-    // For MVP, double-click focuses the formula bar (handled by the bar's focus logic)
+    // Double-click activates inline editing in VirtualGrid
   }, []);
 
   const handleFormulaSubmit = useCallback(
     (value: string) => {
-      if (!selectedCellId || !selectedAddress) return;
+      if (!selectedAddress) return;
+
+      // Resolve cell ID - either existing or we need one
+      let cellId = selectedCellId;
+      if (!cellId) {
+        // Find the cell by address in the cellMap
+        const cell = cellMap.get(selectedAddress.toUpperCase());
+        cellId = cell?.id ?? null;
+      }
+      if (!cellId) return;
 
       let next: ArtifactEnvelope<GridNode>;
       if (value.startsWith('=')) {
-        next = service.applyFormulaChange(artifact, selectedCellId, value);
+        next = service.applyFormulaChange(artifact, cellId, value);
       } else {
         // Parse as number if possible
         const numVal = Number(value);
         const rawValue = value === '' ? null : !isNaN(numVal) && value.trim() !== '' ? numVal : value;
-        next = service.applyCellValueChange(artifact, selectedCellId, rawValue);
+        next = service.applyCellValueChange(artifact, cellId, rawValue);
       }
       onArtifactChange(next);
     },
-    [artifact, selectedCellId, selectedAddress, service, onArtifactChange],
+    [artifact, selectedCellId, selectedAddress, cellMap, service, onArtifactChange],
   );
+
+  const handleDeleteCell = useCallback(() => {
+    if (!selectedCellId || !selectedAddress) return;
+    const next = service.applyCellValueChange(artifact, selectedCellId, null);
+    onArtifactChange(next);
+  }, [artifact, selectedCellId, selectedAddress, service, onArtifactChange]);
+
+  const handleCopyCell = useCallback(() => {
+    if (!selectedAddress) return;
+    const cell = cellMap.get(selectedAddress.toUpperCase());
+    const value = cell?.formula ?? (cell?.rawValue === null ? '' : String(cell?.rawValue ?? ''));
+    navigator.clipboard.writeText(value).catch(() => {
+      // Clipboard write failed silently
+    });
+  }, [selectedAddress, cellMap]);
+
+  const handlePasteCell = useCallback(() => {
+    navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (text && selectedAddress) {
+          handleFormulaSubmit(text);
+        }
+      })
+      .catch(() => {
+        // Clipboard read failed silently
+      });
+  }, [selectedAddress, handleFormulaSubmit]);
+
+  // Global keyboard shortcuts for undo/redo/save
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      if (isMod && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        onUndo?.();
+        return;
+      }
+
+      if (isMod && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        onRedo?.();
+        return;
+      }
+
+      // Ctrl+Y also redo
+      if (isMod && e.key === 'y') {
+        e.preventDefault();
+        onRedo?.();
+        return;
+      }
+
+      if (isMod && e.key === 's') {
+        e.preventDefault();
+        onSave?.();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onUndo, onRedo, onSave]);
 
   const handleGenerateFormula = useCallback(
     async (description: string) => {
@@ -193,8 +271,13 @@ export const GridShell: React.FC<GridShellProps> = ({
           worksheet={activeWorksheet}
           cells={cellMap}
           selectedCellId={selectedCellId}
+          selectedAddress={selectedAddress}
           onCellSelect={handleCellSelect}
           onCellDoubleClick={handleCellDoubleClick}
+          onFormulaSubmit={handleFormulaSubmit}
+          onDeleteCell={handleDeleteCell}
+          onCopyCell={handleCopyCell}
+          onPasteCell={handlePasteCell}
         />
         <GridAiPanel
           selectedCellId={selectedCellId}

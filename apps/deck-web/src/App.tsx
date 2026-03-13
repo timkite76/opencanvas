@@ -149,6 +149,7 @@ export const App: React.FC = () => {
           artifact={artifact}
           service={service}
           onArtifactChange={handleArtifactChange}
+          onSave={handleSave}
         />
       ) : (
         <div

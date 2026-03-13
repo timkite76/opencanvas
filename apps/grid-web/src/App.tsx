@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { GridNode } from '@opencanvas/grid-model';
 import { importXlsx, exportXlsx } from '@opencanvas/interop-xlsx';
@@ -8,12 +8,20 @@ import { GridShell } from './components/GridShell.js';
 import { CollabBar } from './components/CollabBar.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 
+const MAX_UNDO_STACK = 50;
+
 export const App: React.FC = () => {
   const service = useMemo(() => createWorkbookService(), []);
   const [artifact, setArtifact] = useState<ArtifactEnvelope<GridNode> | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [collabEnabled, setCollabEnabled] = useState(false);
+
+  // Undo/redo stacks using refs to avoid stale closures
+  const undoStackRef = useRef<ArtifactEnvelope<GridNode>[]>([]);
+  const redoStackRef = useRef<ArtifactEnvelope<GridNode>[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
 
   const collabUserName = useMemo(() => `User-${Math.random().toString(36).slice(2, 6)}`, []);
   const collabDocId = useMemo(() => 'grid-shared-doc', []);
@@ -34,6 +42,10 @@ export const App: React.FC = () => {
     setArtifact(loaded);
     setIsDirty(false);
     setStatusMessage('Workbook loaded');
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setUndoCount(0);
+    setRedoCount(0);
     if (collabEnabled) {
       collab.initializeWithArtifact(loaded);
     }
@@ -47,12 +59,49 @@ export const App: React.FC = () => {
   }, [artifact, service]);
 
   const handleArtifactChange = useCallback((next: ArtifactEnvelope<GridNode>) => {
-    setArtifact(next);
+    setArtifact((prev) => {
+      if (prev) {
+        undoStackRef.current = [
+          ...undoStackRef.current.slice(-(MAX_UNDO_STACK - 1)),
+          prev,
+        ];
+        setUndoCount(undoStackRef.current.length);
+      }
+      redoStackRef.current = [];
+      setRedoCount(0);
+      return next;
+    });
     setIsDirty(true);
     if (collabEnabled) {
       collab.syncArtifactToYDoc(next);
     }
   }, [collabEnabled, collab]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    setArtifact((current) => {
+      if (!current) return current;
+      const prev = undoStackRef.current[undoStackRef.current.length - 1]!;
+      undoStackRef.current = undoStackRef.current.slice(0, -1);
+      redoStackRef.current = [...redoStackRef.current, current];
+      setUndoCount(undoStackRef.current.length);
+      setRedoCount(redoStackRef.current.length);
+      return prev;
+    });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    setArtifact((current) => {
+      if (!current) return current;
+      const next = redoStackRef.current[redoStackRef.current.length - 1]!;
+      redoStackRef.current = redoStackRef.current.slice(0, -1);
+      undoStackRef.current = [...undoStackRef.current, current];
+      setUndoCount(undoStackRef.current.length);
+      setRedoCount(redoStackRef.current.length);
+      return next;
+    });
+  }, []);
 
   const handleImportXlsx = useCallback(() => {
     const input = document.createElement('input');
@@ -66,6 +115,10 @@ export const App: React.FC = () => {
         const { artifact: imported, report } = await importXlsx(new Uint8Array(arrayBuffer));
         setArtifact(imported);
         setIsDirty(false);
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        setUndoCount(0);
+        setRedoCount(0);
         const summary = formatCompatReport(report);
         setStatusMessage(`Imported: ${file.name}. ${summary}`);
       } catch (err) {
@@ -122,6 +175,28 @@ export const App: React.FC = () => {
         <button onClick={handleExportXlsx} disabled={!artifact} style={{ padding: '4px 12px' }}>
           Export .xlsx
         </button>
+
+        {/* Separator */}
+        <span style={{ color: '#ddd' }}>|</span>
+
+        {/* Undo/Redo buttons */}
+        <button
+          onClick={handleUndo}
+          disabled={!artifact || undoCount === 0}
+          style={{ padding: '4px 12px' }}
+          title="Undo (Ctrl+Z)"
+        >
+          Undo
+        </button>
+        <button
+          onClick={handleRedo}
+          disabled={!artifact || redoCount === 0}
+          style={{ padding: '4px 12px' }}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          Redo
+        </button>
+
         <button
           onClick={() => setCollabEnabled((v) => !v)}
           style={{
@@ -151,6 +226,9 @@ export const App: React.FC = () => {
           artifact={artifact}
           service={service}
           onArtifactChange={handleArtifactChange}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onSave={handleSave}
         />
       ) : (
         <div

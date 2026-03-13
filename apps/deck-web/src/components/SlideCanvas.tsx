@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { ObjectID, BaseNode, Operation } from '@opencanvas/core-types';
 import type { SlideNode } from '@opencanvas/deck-model';
@@ -11,10 +11,14 @@ interface SlideCanvasProps {
   onObjectSelect: (objectId: string | null) => void;
   onApplyOp: (op: Operation) => void;
   artifactId: string;
+  onDeleteObject?: () => void;
+  onDuplicateObject?: () => void;
 }
 
 const SLIDE_WIDTH = 960;
 const SLIDE_HEIGHT = 540;
+
+type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface DragState {
   objectId: string;
@@ -26,10 +30,40 @@ interface DragState {
 
 interface ResizeState {
   objectId: string;
+  handle: ResizeHandle;
   startMouseX: number;
   startMouseY: number;
+  startX: number;
+  startY: number;
   startWidth: number;
   startHeight: number;
+}
+
+const HANDLE_SIZE = 8;
+const HALF_HANDLE = HANDLE_SIZE / 2;
+
+const HANDLE_CURSORS: Record<ResizeHandle, string> = {
+  nw: 'nw-resize',
+  n: 'n-resize',
+  ne: 'ne-resize',
+  e: 'e-resize',
+  se: 'se-resize',
+  s: 's-resize',
+  sw: 'sw-resize',
+  w: 'w-resize',
+};
+
+function getHandlePositions(x: number, y: number, w: number, h: number): Record<ResizeHandle, { left: number; top: number }> {
+  return {
+    nw: { left: x - HALF_HANDLE, top: y - HALF_HANDLE },
+    n:  { left: x + w / 2 - HALF_HANDLE, top: y - HALF_HANDLE },
+    ne: { left: x + w - HALF_HANDLE, top: y - HALF_HANDLE },
+    e:  { left: x + w - HALF_HANDLE, top: y + h / 2 - HALF_HANDLE },
+    se: { left: x + w - HALF_HANDLE, top: y + h - HALF_HANDLE },
+    s:  { left: x + w / 2 - HALF_HANDLE, top: y + h - HALF_HANDLE },
+    sw: { left: x - HALF_HANDLE, top: y + h - HALF_HANDLE },
+    w:  { left: x - HALF_HANDLE, top: y + h / 2 - HALF_HANDLE },
+  };
 }
 
 export const SlideCanvas: React.FC<SlideCanvasProps> = ({
@@ -40,6 +74,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   onObjectSelect,
   onApplyOp,
   artifactId,
+  onDeleteObject,
+  onDuplicateObject,
 }) => {
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -50,6 +86,13 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
     if (!canvasRef.current) return 1;
     return canvasRef.current.getBoundingClientRect().width / SLIDE_WIDTH;
   }, []);
+
+  // Focus the canvas when a slide is loaded or selection changes
+  useEffect(() => {
+    if (slide && !editingObjectId) {
+      canvasRef.current?.focus();
+    }
+  }, [slide, selectedObjectId, editingObjectId]);
 
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -99,6 +142,86 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
     onApplyOp(op);
   }, [nodes, artifactId, onApplyOp]);
 
+  // Keyboard shortcuts
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Don't handle shortcuts while editing text
+    if (editingObjectId) {
+      if (e.key === 'Escape') {
+        setEditingObjectId(null);
+        canvasRef.current?.focus();
+      }
+      return;
+    }
+
+    const isMeta = e.metaKey || e.ctrlKey;
+
+    // Escape - deselect
+    if (e.key === 'Escape') {
+      onObjectSelect(null);
+      return;
+    }
+
+    // Delete / Backspace - delete selected object
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedObjectId) {
+      e.preventDefault();
+      onDeleteObject?.();
+      return;
+    }
+
+    // Ctrl/Cmd+D - duplicate
+    if (isMeta && e.key === 'd') {
+      e.preventDefault();
+      onDuplicateObject?.();
+      return;
+    }
+
+    // Ctrl/Cmd+A - select all (future multi-select placeholder)
+    if (isMeta && e.key === 'a') {
+      e.preventDefault();
+      // For now, just prevent default browser select-all
+      return;
+    }
+
+    // Arrow keys - nudge selected object
+    if (selectedObjectId && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+      const node = nodes[selectedObjectId] as unknown as Record<string, unknown> | undefined;
+      if (!node) return;
+
+      const step = e.shiftKey ? 10 : 1;
+      const currentX = (node.x as number) ?? 0;
+      const currentY = (node.y as number) ?? 0;
+      let newX = currentX;
+      let newY = currentY;
+
+      switch (e.key) {
+        case 'ArrowUp':    newY = Math.max(0, currentY - step); break;
+        case 'ArrowDown':  newY = Math.min(SLIDE_HEIGHT, currentY + step); break;
+        case 'ArrowLeft':  newX = Math.max(0, currentX - step); break;
+        case 'ArrowRight': newX = Math.min(SLIDE_WIDTH, currentX + step); break;
+      }
+
+      if (newX !== currentX || newY !== currentY) {
+        const op: Operation = {
+          operationId: uuidv4(),
+          type: 'move_object',
+          artifactId,
+          targetId: selectedObjectId,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+          payload: {
+            x: newX,
+            y: newY,
+            previousX: currentX,
+            previousY: currentY,
+          },
+        };
+        onApplyOp(op);
+      }
+      return;
+    }
+  }, [editingObjectId, selectedObjectId, nodes, artifactId, onApplyOp, onObjectSelect, onDeleteObject, onDuplicateObject]);
+
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent, objectId: string) => {
     if (editingObjectId === objectId) return;
@@ -106,7 +229,6 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
     const node = nodes[objectId] as unknown as Record<string, unknown> | undefined;
     if (!node) return;
 
-    const scale = getCanvasScale();
     setDragState({
       objectId,
       startMouseX: e.clientX,
@@ -114,11 +236,10 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
       startObjX: (node.x as number) ?? 0,
       startObjY: (node.y as number) ?? 0,
     });
-  }, [editingObjectId, nodes, getCanvasScale]);
+  }, [editingObjectId, nodes]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (dragState) {
-      // Visual feedback is handled by the operation on mouseup
       return;
     }
   }, [dragState]);
@@ -154,12 +275,54 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
 
     if (resizeState) {
       const scale = getCanvasScale();
-      const dw = (e.clientX - resizeState.startMouseX) / scale;
-      const dh = (e.clientY - resizeState.startMouseY) / scale;
-      const newW = Math.round(Math.max(40, resizeState.startWidth + dw));
-      const newH = Math.round(Math.max(20, resizeState.startHeight + dh));
+      const dx = (e.clientX - resizeState.startMouseX) / scale;
+      const dy = (e.clientY - resizeState.startMouseY) / scale;
+      const handle = resizeState.handle;
 
-      const op: Operation = {
+      let newX = resizeState.startX;
+      let newY = resizeState.startY;
+      let newW = resizeState.startWidth;
+      let newH = resizeState.startHeight;
+
+      // Horizontal adjustments
+      if (handle === 'nw' || handle === 'w' || handle === 'sw') {
+        newX = Math.round(Math.max(0, resizeState.startX + dx));
+        newW = Math.round(Math.max(40, resizeState.startWidth - dx));
+      }
+      if (handle === 'ne' || handle === 'e' || handle === 'se') {
+        newW = Math.round(Math.max(40, resizeState.startWidth + dx));
+      }
+
+      // Vertical adjustments
+      if (handle === 'nw' || handle === 'n' || handle === 'ne') {
+        newY = Math.round(Math.max(0, resizeState.startY + dy));
+        newH = Math.round(Math.max(20, resizeState.startHeight - dy));
+      }
+      if (handle === 'sw' || handle === 's' || handle === 'se') {
+        newH = Math.round(Math.max(20, resizeState.startHeight + dy));
+      }
+
+      // Build operations: move + resize if position changed, otherwise just resize
+      const ops: Operation[] = [];
+
+      if (newX !== resizeState.startX || newY !== resizeState.startY) {
+        ops.push({
+          operationId: uuidv4(),
+          type: 'move_object',
+          artifactId,
+          targetId: resizeState.objectId,
+          actorType: 'user',
+          timestamp: new Date().toISOString(),
+          payload: {
+            x: newX,
+            y: newY,
+            previousX: resizeState.startX,
+            previousY: resizeState.startY,
+          },
+        });
+      }
+
+      ops.push({
         operationId: uuidv4(),
         type: 'resize_object',
         artifactId,
@@ -172,13 +335,18 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           previousWidth: resizeState.startWidth,
           previousHeight: resizeState.startHeight,
         },
-      };
-      onApplyOp(op);
+      });
+
+      // Apply operations
+      for (const op of ops) {
+        onApplyOp(op);
+      }
+
       setResizeState(null);
     }
   }, [dragState, resizeState, getCanvasScale, artifactId, onApplyOp]);
 
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent, objectId: string) => {
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, objectId: string, handle: ResizeHandle) => {
     e.stopPropagation();
     e.preventDefault();
     const node = nodes[objectId] as unknown as Record<string, unknown> | undefined;
@@ -186,8 +354,11 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
 
     setResizeState({
       objectId,
+      handle,
       startMouseX: e.clientX,
       startMouseY: e.clientY,
+      startX: (node.x as number) ?? 0,
+      startY: (node.y as number) ?? 0,
       startWidth: (node.width as number) ?? 100,
       startHeight: (node.height as number) ?? 50,
     });
@@ -215,10 +386,12 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
     >
       <div
         ref={canvasRef}
+        tabIndex={0}
         onClick={handleCanvasClick}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onKeyDown={handleKeyDown}
         style={{
           width: SLIDE_WIDTH,
           height: SLIDE_HEIGHT,
@@ -227,6 +400,7 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
           position: 'relative',
           aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}`,
+          outline: 'none',
         }}
       >
         {objectIds.map((objId) => {
@@ -277,9 +451,10 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
+                  if (isEditing && e.key === 'Escape') {
                     setEditingObjectId(null);
                     (e.target as HTMLElement).blur();
+                    canvasRef.current?.focus();
                   }
                 }}
               >
@@ -346,7 +521,7 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           return null;
         })}
 
-        {/* Resize handle for selected object */}
+        {/* 8-way resize handles for selected object */}
         {selectedObjectId && !editingObjectId && (() => {
           const node = nodes[selectedObjectId] as unknown as Record<string, unknown> | undefined;
           if (!node) return null;
@@ -355,22 +530,26 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           const w = (node.width as number) ?? 100;
           const h = (node.height as number) ?? 50;
 
-          return (
+          const handles = getHandlePositions(x, y, w, h);
+
+          return (Object.entries(handles) as Array<[ResizeHandle, { left: number; top: number }]>).map(([handle, pos]) => (
             <div
-              onMouseDown={(e) => handleResizeMouseDown(e, selectedObjectId)}
+              key={handle}
+              onMouseDown={(e) => handleResizeMouseDown(e, selectedObjectId, handle)}
               style={{
                 position: 'absolute',
-                left: x + w - 5,
-                top: y + h - 5,
-                width: 10,
-                height: 10,
+                left: pos.left,
+                top: pos.top,
+                width: HANDLE_SIZE,
+                height: HANDLE_SIZE,
                 background: '#1a73e8',
-                cursor: 'se-resize',
-                borderRadius: 2,
+                border: '1px solid #fff',
+                cursor: HANDLE_CURSORS[handle],
                 zIndex: 10,
+                boxSizing: 'border-box',
               }}
             />
-          );
+          ));
         })()}
       </div>
     </div>

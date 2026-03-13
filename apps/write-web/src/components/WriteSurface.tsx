@@ -10,6 +10,7 @@ interface WriteSurfaceProps {
   onSelectionChange: (selection: CanonicalSelection | null) => void;
   onBlockFocus: (blockId: string) => void;
   onInsertBlockAfter: (blockId: string) => void;
+  onDeleteBlock: (blockId: string) => void;
 }
 
 export const WriteSurface: React.FC<WriteSurfaceProps> = ({
@@ -20,6 +21,7 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
   onSelectionChange,
   onBlockFocus,
   onInsertBlockAfter,
+  onDeleteBlock,
 }) => {
   return (
     <div
@@ -49,6 +51,7 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
             onSelectionChange={onSelectionChange}
             onFocus={onBlockFocus}
             onInsertBlockAfter={onInsertBlockAfter}
+            onDeleteBlock={onDeleteBlock}
           />
         );
       })}
