@@ -65,6 +65,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [notesEditing, setNotesEditing] = useState(false);
+  const [lastTaskOutput, setLastTaskOutput] = useState<Record<string, unknown> | null>(null);
 
   const undoRedo = useUndoRedoManager();
 
@@ -396,9 +397,10 @@ export const DeckShell: React.FC<DeckShellProps> = ({
 
   // AI handlers
   const handleAiTask = useCallback(async (taskType: string, parameters: Record<string, unknown>) => {
-    if (!effectiveSlideId) return;
+    const targetId = effectiveSlideId ?? artifact.rootNodeId;
     setIsAiLoading(true);
     setAiPreviewText(null);
+    setLastTaskOutput(null);
 
     try {
       const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
@@ -406,7 +408,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           taskType,
-          targetId: effectiveSlideId,
+          targetId,
           parameters,
           artifact,
         }),
@@ -415,6 +417,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
       const data = await response.json();
       setAiPreviewText(data.previewText ?? 'No preview available');
       setPendingTaskId(data.taskId);
+      setLastTaskOutput(data.output ?? null);
     } catch (err) {
       setAiPreviewText(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
     } finally {
@@ -454,6 +457,18 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     setAiPreviewText(null);
     setPendingTaskId(null);
   }, [pendingTaskId]);
+
+  // AI rewrite handler for individual text box from toolbar
+  const handleAiRewrite = useCallback((tone: string) => {
+    if (!effectiveSlideId) return;
+    handleAiTask('rewrite_slide', { slideId: effectiveSlideId, tone });
+  }, [effectiveSlideId, handleAiTask]);
+
+  // Navigate to a specific slide (used by coach feedback)
+  const handleNavigateToSlide = useCallback((slideId: string) => {
+    setSelectedSlideId(slideId);
+    setSelectedObjectId(null);
+  }, []);
 
   // Speaker notes edit handler
   const handleNotesBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
@@ -578,6 +593,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
             onInsertRectangle={handleInsertRectangle}
             onInsertEllipse={handleInsertEllipse}
             onUpdateNodePatch={handleUpdateNodePatch}
+            onAiRewrite={handleAiRewrite}
           />
         )}
         <SlideCanvas
@@ -716,6 +732,8 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         onApprove={handleApprove}
         onReject={handleReject}
         pendingTaskId={pendingTaskId}
+        onNavigateToSlide={handleNavigateToSlide}
+        lastTaskOutput={lastTaskOutput}
       />
     </div>
   );

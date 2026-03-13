@@ -15,6 +15,10 @@ interface WriteSurfaceProps {
   onConvertToParagraph?: (blockId: string) => void;
   findMatches?: FindMatch[];
   currentMatchIndex?: number;
+  completionBlockId?: string | null;
+  completionText?: string;
+  onAcceptCompletion?: (blockId: string) => void;
+  onDismissCompletion?: (blockId: string) => void;
 }
 
 export const WriteSurface: React.FC<WriteSurfaceProps> = ({
@@ -30,6 +34,10 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
   onConvertToParagraph,
   findMatches = [],
   currentMatchIndex = -1,
+  completionBlockId,
+  completionText,
+  onAcceptCompletion,
+  onDismissCompletion,
 }) => {
   return (
     <div
@@ -81,6 +89,9 @@ export const WriteSurface: React.FC<WriteSurfaceProps> = ({
               findMatches={blockFindMatches}
               currentMatchIndex={currentMatchIndex}
               allMatches={findMatches}
+              completionText={completionBlockId === block.id ? completionText : undefined}
+              onAcceptCompletion={onAcceptCompletion}
+              onDismissCompletion={onDismissCompletion}
             />
           );
         })}

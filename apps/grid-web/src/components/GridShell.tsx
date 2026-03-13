@@ -92,6 +92,8 @@ export const GridShell: React.FC<GridShellProps> = ({
   const [selectionRange, setSelectionRange] = useState<SelectionRange | null>(null);
   const [freezeRows, setFreezeRows] = useState(0);
   const [freezeCols, setFreezeCols] = useState(0);
+  const [aiFormulaPreview, setAiFormulaPreview] = useState<string | null>(null);
+  const [aiFormulaTaskId, setAiFormulaTaskId] = useState<string | null>(null);
 
   type FreezeMode = 'none' | 'row' | 'col' | 'both';
   const freezeMode: FreezeMode =
@@ -144,6 +146,14 @@ export const GridShell: React.FC<GridShellProps> = ({
     if (!selectionRange || !isMultiCellRange(selectionRange)) return null;
     return computeRangeStats(selectionRange, cellMap);
   }, [selectionRange, cellMap]);
+
+  // Compute a range label like "A1:C5" for the AI panel
+  const selectedRangeLabel = useMemo(() => {
+    if (!selectionRange) return null;
+    const { minCol, maxCol, minRow, maxRow } = normalizeRange(selectionRange);
+    if (minCol === maxCol && minRow === maxRow) return null;
+    return `${columnIndexToLabel(minCol)}${minRow}:${columnIndexToLabel(maxCol)}${maxRow}`;
+  }, [selectionRange]);
 
   const handleCellSelect = useCallback((cellId: string | null, address: string) => {
     setSelectedCellId(cellId);
@@ -439,6 +449,178 @@ export const GridShell: React.FC<GridShellProps> = ({
     setPendingTaskId(null);
   }, [pendingTaskId]);
 
+  // --- FormulaBar AI mode handlers ---
+  const handleAiGenerate = useCallback(
+    async (description: string) => {
+      if (!selectedCellId) return;
+      setIsAiLoading(true);
+      setAiFormulaPreview(null);
+
+      try {
+        const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskType: 'generate_formula',
+            targetId: selectedCellId,
+            parameters: { description, targetCellId: selectedCellId },
+            artifact,
+          }),
+        });
+
+        const data = await response.json();
+        // Extract just the formula from the output for the FormulaBar preview
+        const formula = data.output?.generatedFormula ?? data.previewText ?? '';
+        setAiFormulaPreview(String(formula));
+        setAiFormulaTaskId(data.taskId);
+      } catch (err) {
+        setAiFormulaPreview(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
+      } finally {
+        setIsAiLoading(false);
+      }
+    },
+    [selectedCellId, artifact],
+  );
+
+  const handleAiAccept = useCallback(async () => {
+    if (!aiFormulaTaskId) return;
+    try {
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/${aiFormulaTaskId}/approve`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      let next = artifact;
+      for (const op of data.approvedOperations ?? []) {
+        next = service.applyOp(next, op);
+      }
+      onArtifactChange(next);
+    } catch (err) {
+      setAiPreviewText(`Approve error: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+    setAiFormulaPreview(null);
+    setAiFormulaTaskId(null);
+  }, [aiFormulaTaskId, artifact, service, onArtifactChange]);
+
+  const handleAiReject = useCallback(async () => {
+    if (aiFormulaTaskId) {
+      try {
+        await fetch(`${AI_RUNTIME_URL}/ai/tasks/${aiFormulaTaskId}/reject`, {
+          method: 'POST',
+        });
+      } catch {
+        // Ignore
+      }
+    }
+    setAiFormulaPreview(null);
+    setAiFormulaTaskId(null);
+  }, [aiFormulaTaskId]);
+
+  // --- New AI panel handlers ---
+
+  /** Generic helper: call an AI task preview */
+  const callAiTask = useCallback(
+    async (taskType: string, targetId: string, parameters: Record<string, unknown>) => {
+      setIsAiLoading(true);
+      setAiPreviewText(null);
+
+      try {
+        const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskType, targetId, parameters, artifact }),
+        });
+
+        const data = await response.json();
+        setAiPreviewText(data.previewText ?? 'No preview available');
+        setPendingTaskId(data.requiresApproval ? data.taskId : null);
+      } catch (err) {
+        setAiPreviewText(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
+      } finally {
+        setIsAiLoading(false);
+      }
+    },
+    [artifact],
+  );
+
+  const handleAnalyzeData = useCallback(
+    (rangeDescription: string) => {
+      const targetId = selectedCellId ?? effectiveWorksheetId ?? 'unknown';
+      callAiTask('analyze_data', targetId, { rangeDescription });
+    },
+    [selectedCellId, effectiveWorksheetId, callAiTask],
+  );
+
+  const handleSmartFill = useCallback(
+    (sourceRange: string, targetRange: string) => {
+      const targetId = selectedCellId ?? effectiveWorksheetId ?? 'unknown';
+      callAiTask('smart_fill', targetId, { sourceRange, targetRange });
+    },
+    [selectedCellId, effectiveWorksheetId, callAiTask],
+  );
+
+  const handleCleanData = useCallback(
+    (rangeDescription: string) => {
+      const targetId = selectedCellId ?? effectiveWorksheetId ?? 'unknown';
+      callAiTask('clean_data', targetId, { rangeDescription });
+    },
+    [selectedCellId, effectiveWorksheetId, callAiTask],
+  );
+
+  const handleSuggestChart = useCallback(
+    (rangeDescription: string) => {
+      const targetId = selectedCellId ?? effectiveWorksheetId ?? 'unknown';
+      callAiTask('suggest_chart', targetId, { rangeDescription });
+    },
+    [selectedCellId, effectiveWorksheetId, callAiTask],
+  );
+
+  // --- Formula Error Fix handler (Task 4) ---
+  const handleFixError = useCallback(
+    async (cellId: string, formula: string, errorValue: string) => {
+      setIsAiLoading(true);
+      setAiPreviewText(null);
+
+      // Use explain_formula with the error context to get a fix suggestion
+      try {
+        const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskType: 'generate_formula',
+            targetId: cellId,
+            parameters: {
+              description: `Fix this broken formula: ${formula} (error: ${errorValue}). Generate a corrected version.`,
+              targetCellId: cellId,
+            },
+            artifact,
+          }),
+        });
+
+        const data = await response.json();
+        setAiPreviewText(
+          `Formula Error Fix\n` +
+          `Original: ${formula}\n` +
+          `Error: ${errorValue}\n\n` +
+          (data.previewText ?? 'No suggestion available'),
+        );
+        setPendingTaskId(data.taskId);
+
+        // Select the error cell
+        const node = artifact.nodes[cellId];
+        if (node && node.type === 'cell') {
+          const cellNode = node as CellNode;
+          setSelectedCellId(cellId);
+          setSelectedAddress(cellNode.address);
+        }
+      } catch (err) {
+        setAiPreviewText(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
+      } finally {
+        setIsAiLoading(false);
+      }
+    },
+    [artifact],
+  );
+
   if (!activeWorksheet) {
     return <div style={{ padding: 16, color: '#888' }}>No worksheets found in this workbook.</div>;
   }
@@ -450,6 +632,11 @@ export const GridShell: React.FC<GridShellProps> = ({
         cellFormula={selectedCell?.formula ?? null}
         cellRawValue={selectedCell?.rawValue ?? null}
         onFormulaSubmit={handleFormulaSubmit}
+        onAiGenerate={handleAiGenerate}
+        aiPreview={aiFormulaPreview}
+        aiLoading={isAiLoading}
+        onAiAccept={handleAiAccept}
+        onAiReject={handleAiReject}
       />
       {/* Freeze Panes toolbar */}
       <div
@@ -510,6 +697,7 @@ export const GridShell: React.FC<GridShellProps> = ({
           onSelectionRangeChange={setSelectionRange}
           freezeRows={freezeRows}
           freezeCols={freezeCols}
+          onFixError={handleFixError}
         />
         <GridAiPanel
           selectedCellId={selectedCellId}
@@ -520,6 +708,11 @@ export const GridShell: React.FC<GridShellProps> = ({
           previewText={aiPreviewText}
           onApprove={handleApprove}
           onReject={handleReject}
+          onAnalyzeData={handleAnalyzeData}
+          onSmartFill={handleSmartFill}
+          onCleanData={handleCleanData}
+          onSuggestChart={handleSuggestChart}
+          selectedRangeLabel={selectedRangeLabel}
         />
       </div>
       {/* Status bar - shows above worksheet tabs when range has numeric stats */}

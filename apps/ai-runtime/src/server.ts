@@ -5,12 +5,30 @@ import type { Operation, AgentActionRecord } from '@opencanvas/core-types';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
 import type { FunctionResult } from '@opencanvas/function-sdk';
 import { InMemoryFunctionRegistry } from '@opencanvas/function-registry';
-import { rewriteBlockFunction } from '@opencanvas/function-examples';
-import { generateFormulaFunction, explainFormulaFunction } from '@opencanvas/grid-functions';
+import {
+  rewriteBlockFunction,
+  completeTextFunction,
+  summarizeDocumentFunction,
+  extractActionItemsFunction,
+  improveWritingFunction,
+  generateOutlineFunction,
+} from '@opencanvas/function-examples';
+import {
+  generateFormulaFunction,
+  explainFormulaFunction,
+  analyzeDataFunction,
+  smartFillFunction,
+  cleanDataFunction,
+  suggestChartFunction,
+} from '@opencanvas/grid-functions';
 import {
   createDeckFromOutlineFunction,
   rewriteSlideFunction,
   generateSpeakerNotesFunction,
+  suggestLayoutFunction,
+  slideCoachFunction,
+  enhanceSlideFunction,
+  generateFromTemplateFunction,
 } from '@opencanvas/deck-functions';
 
 const app = express();
@@ -19,11 +37,24 @@ app.use(express.json({ limit: '10mb' }));
 
 const registry = new InMemoryFunctionRegistry();
 registry.register(rewriteBlockFunction);
+registry.register(completeTextFunction);
+registry.register(summarizeDocumentFunction);
+registry.register(extractActionItemsFunction);
+registry.register(improveWritingFunction);
+registry.register(generateOutlineFunction);
 registry.register(generateFormulaFunction);
 registry.register(explainFormulaFunction);
+registry.register(analyzeDataFunction);
+registry.register(smartFillFunction);
+registry.register(cleanDataFunction);
+registry.register(suggestChartFunction);
 registry.register(createDeckFromOutlineFunction);
 registry.register(rewriteSlideFunction);
 registry.register(generateSpeakerNotesFunction);
+registry.register(suggestLayoutFunction);
+registry.register(slideCoachFunction);
+registry.register(enhanceSlideFunction);
+registry.register(generateFromTemplateFunction);
 
 interface PendingTask {
   taskId: string;
@@ -120,6 +151,7 @@ app.post('/ai/tasks/preview', async (req, res) => {
       previewText: result.previewText,
       proposedOperations: result.proposedOperations,
       requiresApproval: fn.permissions.requiresApproval,
+      output: result.output ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

@@ -29,6 +29,8 @@ interface VirtualGridProps {
   onSelectionRangeChange: (range: SelectionRange | null) => void;
   freezeRows?: number;
   freezeCols?: number;
+  /** Called when user clicks the "Fix" button on an error cell */
+  onFixError?: (cellId: string, formula: string, errorValue: string) => void;
 }
 
 const DEFAULT_COL_WIDTH = 100;
@@ -165,6 +167,7 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
   onSelectionRangeChange,
   freezeRows = 0,
   freezeCols = 0,
+  onFixError,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -773,6 +776,39 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
         }}
       >
         {isEditing ? null : displayVal}
+        {/* Error fix button */}
+        {!isEditing && cell?.valueType === 'error' && cell.formula && onFixError && (
+          <button
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onFixError(cell.id, cell.formula!, cell.displayValue);
+            }}
+            title="AI Fix: suggest a correction for this formula"
+            style={{
+              position: 'absolute',
+              top: 2,
+              right: 2,
+              width: 18,
+              height: 18,
+              padding: 0,
+              border: 'none',
+              borderRadius: 3,
+              background: '#fce8e6',
+              color: '#d93025',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
+              zIndex: 5,
+              fontFamily: 'inherit',
+            }}
+          >
+            Fix
+          </button>
+        )}
         {isEditing && (
           <input
             ref={editInputRef}

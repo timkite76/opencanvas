@@ -20,6 +20,9 @@ interface BlockEditorProps {
   findMatches?: FindMatch[];
   currentMatchIndex?: number;
   allMatches?: FindMatch[];
+  completionText?: string;
+  onAcceptCompletion?: (blockId: string) => void;
+  onDismissCompletion?: (blockId: string) => void;
 }
 
 /**
@@ -179,19 +182,43 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   findMatches = [],
   currentMatchIndex = -1,
   allMatches = [],
+  completionText,
+  onAcceptCompletion,
+  onDismissCompletion,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
 
   const handleInput = useCallback(() => {
     if (!ref.current) return;
-    const newText = ref.current.textContent ?? '';
+    // Exclude ghost text spans from the text content
+    let newText = '';
+    ref.current.childNodes.forEach((child) => {
+      if (child instanceof HTMLElement && child.getAttribute('data-ghost-text') === 'true') {
+        return; // skip ghost text
+      }
+      newText += child.textContent ?? '';
+    });
     onTextChange(block.id, newText);
   }, [block.id, onTextChange]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
+
+      // Ghost text: Tab accepts, any other non-modifier key dismisses
+      if (completionText) {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          onAcceptCompletion?.(block.id);
+          return;
+        }
+        // Modifier keys and navigation should not dismiss
+        const ignoredKeys = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'];
+        if (!ignoredKeys.includes(e.key) && !isMod) {
+          onDismissCompletion?.(block.id);
+        }
+      }
 
       // Inline formatting shortcuts
       if (isMod && e.key === 'b') {
@@ -256,7 +283,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
         }
       }
     },
-    [block.id, onInsertBlockAfter, onDeleteBlock],
+    [block.id, onInsertBlockAfter, onDeleteBlock, completionText, onAcceptCompletion, onDismissCompletion, onInsertListItemAfter, onConvertToPararaph],
   );
 
   const handleSelect = useCallback(() => {
@@ -394,5 +421,28 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     );
   }
 
-  return <p {...commonProps} style={{ ...baseStyle, ...PARAGRAPH_STYLE }}>{content}</p>;
+  // Ghost text element for inline completions
+  const ghostTextEl = completionText ? (
+    <span
+      contentEditable={false}
+      style={{
+        color: '#9ca3af',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        fontStyle: 'italic',
+        opacity: 0.7,
+      }}
+      aria-label="Suggested completion (press Tab to accept)"
+      data-ghost-text="true"
+    >
+      {completionText}
+    </span>
+  ) : null;
+
+  return (
+    <p {...commonProps} style={{ ...baseStyle, ...PARAGRAPH_STYLE }}>
+      {content}
+      {ghostTextEl}
+    </p>
+  );
 };

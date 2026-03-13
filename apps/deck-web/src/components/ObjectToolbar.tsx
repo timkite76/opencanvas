@@ -10,6 +10,7 @@ interface ObjectToolbarProps {
   onInsertRectangle: () => void;
   onInsertEllipse: () => void;
   onUpdateNodePatch?: (nodeId: string, patch: Record<string, unknown>) => void;
+  onAiRewrite?: (tone: string) => void;
 }
 
 const COLOR_PALETTE = [
@@ -184,6 +185,108 @@ const ColorPickerPopover: React.FC<ColorPickerPopoverProps> = ({ currentColor, l
   );
 };
 
+const AI_REWRITE_TONES = [
+  { value: 'executive', label: 'Executive' },
+  { value: 'concise', label: 'Concise' },
+  { value: 'friendly', label: 'Friendly' },
+  { value: 'formal', label: 'Formal' },
+];
+
+interface AiRewritePopoverProps {
+  onSelectTone: (tone: string) => void;
+}
+
+const AiRewritePopover: React.FC<AiRewritePopoverProps> = ({ onSelectTone }) => {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={popoverRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          ...btnBase,
+          background: 'linear-gradient(135deg, #8e24aa, #e040fb)',
+          color: '#ffffff',
+          borderColor: '#8e24aa',
+          gap: 6,
+          padding: '4px 10px',
+        }}
+        title="AI Rewrite - rewrite this text box in a specific tone"
+        onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700 }}>AI</span> Rewrite
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          marginTop: 4,
+          background: '#ffffff',
+          border: '1px solid #dadce0',
+          borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          padding: 4,
+          zIndex: 100,
+          minWidth: 140,
+        }}>
+          <div style={{
+            padding: '4px 10px',
+            fontSize: 10,
+            fontWeight: 600,
+            color: '#80868b',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.3px',
+          }}>
+            Select Tone
+          </div>
+          {AI_REWRITE_TONES.map((tone) => (
+            <button
+              key={tone.value}
+              onClick={() => {
+                onSelectTone(tone.value);
+                setOpen(false);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 10px',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontFamily: 'system-ui, sans-serif',
+                color: '#3c4043',
+                textAlign: 'left',
+                borderRadius: 4,
+                transition: 'background 0.1s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f3f4'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+            >
+              {tone.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
   selectedObjectId,
   node,
@@ -193,6 +296,7 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
   onInsertRectangle,
   onInsertEllipse,
   onUpdateNodePatch,
+  onAiRewrite,
 }) => {
   const anyNode = node as unknown as Record<string, unknown> | undefined;
   const nodeType = anyNode?.type as string | undefined;
@@ -349,6 +453,12 @@ export const ObjectToolbar: React.FC<ObjectToolbarProps> = ({
             currentColor={currentStroke}
             onColorSelect={handleStrokeChange}
           />
+          {onAiRewrite && (
+            <>
+              <div style={{ width: 1, height: 24, background: '#dadce0', margin: '0 2px' }} />
+              <AiRewritePopover onSelectTone={onAiRewrite} />
+            </>
+          )}
         </>
       )}
 

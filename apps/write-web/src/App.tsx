@@ -13,6 +13,7 @@ import { Toolbar } from './components/Toolbar.js';
 import { CollabBar } from './components/CollabBar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { FindReplace } from './components/FindReplace.js';
+import { FloatingActions } from './components/FloatingActions.js';
 import type { FindMatch } from './components/BlockEditor.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 import { useUndoRedo } from './hooks/useUndoRedo.js';
@@ -43,6 +44,15 @@ export const App: React.FC = () => {
   const [findReplaceTerm, setFindReplaceTerm] = useState('');
   const [findCaseSensitive, setFindCaseSensitive] = useState(false);
   const [findCurrentIndex, setFindCurrentIndex] = useState(0);
+
+  // Inline completion (ghost text) state
+  const [completionBlockId, setCompletionBlockId] = useState<string | null>(null);
+  const [completionText, setCompletionText] = useState<string>('');
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Floating toolbar state
+  const [showFloatingActions, setShowFloatingActions] = useState(false);
+  const [floatingActionLoading, setFloatingActionLoading] = useState(false);
 
   const undoRedo = useUndoRedo();
 
@@ -236,8 +246,11 @@ export const App: React.FC = () => {
         }
       }, 300);
       debounceTimerRef.current.set(blockId, timer);
+
+      // Schedule inline completion after typing pause
+      scheduleCompletion(blockId, newText);
     },
-    [commitBlockText],
+    [commitBlockText, scheduleCompletion],
   );
 
   const handleInsertBlockAfter = useCallback(
@@ -1123,6 +1136,359 @@ export const App: React.FC = () => {
     }
   }, [pendingPreview]);
 
+  // --- Inline Completion (Ghost Text) ---
+
+  const requestCompletion = useCallback(
+    async (blockId: string, text: string, cursorOffset: number) => {
+      if (!adapterRef.current || !text.trim()) return;
+
+      try {
+        // Gather full document text for context
+        const allBlocks = adapterRef.current.getEditableBlocks();
+        const contextText = allBlocks.map((b) => b.text).join('\n');
+
+        const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskType: 'complete_text',
+            targetId: blockId,
+            parameters: { cursorOffset, contextText },
+            artifact: adapterRef.current.getArtifact(),
+          }),
+        });
+
+        if (!response.ok) return;
+        const data = await response.json();
+        const completion = data.previewText ?? data.output?.completion ?? '';
+
+        if (completion && completion.length > 0) {
+          setCompletionBlockId(blockId);
+          setCompletionText(completion);
+        }
+      } catch {
+        // Silently fail - completion is a nice-to-have
+      }
+    },
+    [],
+  );
+
+  const handleAcceptCompletion = useCallback(
+    (blockId: string) => {
+      if (!adapterRef.current || !completionText || completionBlockId !== blockId) return;
+
+      const artifact = adapterRef.current.getArtifact();
+      const node = artifact.nodes[blockId] as { content?: { text: string }[] } | undefined;
+      if (!node?.content) return;
+
+      const oldText = node.content.map((r) => r.text).join('');
+      const newText = oldText + completionText;
+
+      // Snapshot for undo
+      undoRedo.pushSnapshot(adapterRef.current.getArtifact());
+
+      const op: Operation = {
+        operationId: uuidv4(),
+        type: 'replace_text',
+        artifactId: artifact.artifactId,
+        targetId: blockId,
+        actorType: 'user',
+        timestamp: new Date().toISOString(),
+        payload: {
+          startOffset: 0,
+          endOffset: oldText.length,
+          newText,
+          oldText,
+        },
+      };
+
+      adapterRef.current.applyOperation(op);
+      if (collabEnabled) {
+        collab.applyOperationToCollab(op);
+      }
+
+      setCompletionBlockId(null);
+      setCompletionText('');
+      setIsDirty(true);
+      pendingFocusRef.current = blockId;
+      refreshBlocks();
+    },
+    [completionText, completionBlockId, collabEnabled, collab, undoRedo, refreshBlocks],
+  );
+
+  const handleDismissCompletion = useCallback(
+    (_blockId: string) => {
+      setCompletionBlockId(null);
+      setCompletionText('');
+    },
+    [],
+  );
+
+  // Trigger completion timer on text changes
+  const scheduleCompletion = useCallback(
+    (blockId: string, text: string) => {
+      // Clear any existing timer
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+        completionTimerRef.current = null;
+      }
+      // Dismiss existing completion
+      setCompletionBlockId(null);
+      setCompletionText('');
+
+      // Schedule a new completion request after 1.5s pause
+      completionTimerRef.current = setTimeout(() => {
+        completionTimerRef.current = null;
+        requestCompletion(blockId, text, text.length);
+      }, 1500);
+    },
+    [requestCompletion],
+  );
+
+  // --- Floating Toolbar Actions ---
+
+  const handleFloatingAction = useCallback(
+    async (action: string) => {
+      if (!adapterRef.current || !selection) return;
+
+      setFloatingActionLoading(true);
+
+      // Map floating actions to AI runtime task types
+      const actionToTask: Record<string, { taskType: string; parameters: Record<string, unknown> }> = {
+        rewrite: { taskType: 'rewrite_block', parameters: { tone: 'executive' } },
+        expand: { taskType: 'rewrite_block', parameters: { tone: 'formal', instructions: 'expand' } },
+        condense: { taskType: 'rewrite_block', parameters: { tone: 'concise' } },
+        fix_grammar: { taskType: 'improve_writing', parameters: {} },
+        simplify: { taskType: 'rewrite_block', parameters: { tone: 'friendly' } },
+      };
+
+      const taskConfig = actionToTask[action];
+      if (!taskConfig) {
+        setFloatingActionLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            taskType: taskConfig.taskType,
+            targetId: selection.objectId,
+            selectionStart: selection.startOffset,
+            selectionEnd: selection.endOffset,
+            parameters: taskConfig.parameters,
+            artifact: adapterRef.current.getArtifact(),
+          }),
+        });
+
+        const data = await response.json();
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: data.previewText,
+          operations: data.proposedOperations,
+        });
+        setShowFloatingActions(false);
+      } catch (err) {
+        setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+      } finally {
+        setFloatingActionLoading(false);
+      }
+    },
+    [selection],
+  );
+
+  // Track text selection for the floating toolbar
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        setShowFloatingActions(true);
+      } else {
+        setShowFloatingActions(false);
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, []);
+
+  // --- Document-level AI Actions ---
+
+  const handleSummarize = useCallback(async () => {
+    if (!adapterRef.current) return;
+    setIsLoading(true);
+    setPendingPreview(null);
+
+    try {
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: 'summarize_document',
+          targetId: adapterRef.current.getArtifact().rootNodeId,
+          parameters: {},
+          artifact: adapterRef.current.getArtifact(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setStatusMessage(`Summarize error: ${data.error}`);
+      } else {
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: data.previewText,
+          operations: data.proposedOperations,
+        });
+      }
+    } catch (err) {
+      setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const handleExtractActions = useCallback(async () => {
+    if (!adapterRef.current) return;
+    setIsLoading(true);
+    setPendingPreview(null);
+
+    try {
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: 'extract_action_items',
+          targetId: adapterRef.current.getArtifact().rootNodeId,
+          parameters: {},
+          artifact: adapterRef.current.getArtifact(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setStatusMessage(`Extract actions error: ${data.error}`);
+      } else {
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: data.previewText,
+          operations: data.proposedOperations,
+        });
+      }
+    } catch (err) {
+      setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const handleImproveWriting = useCallback(async () => {
+    if (!adapterRef.current || !selection) return;
+    setIsLoading(true);
+    setPendingPreview(null);
+
+    try {
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: 'improve_writing',
+          targetId: selection.objectId,
+          parameters: {},
+          artifact: adapterRef.current.getArtifact(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setStatusMessage(`Writing review error: ${data.error}`);
+      } else {
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: data.previewText,
+          operations: data.proposedOperations ?? [],
+        });
+      }
+    } catch (err) {
+      setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selection]);
+
+  const handleContinueWriting = useCallback(async () => {
+    if (!adapterRef.current || !selection) return;
+    setIsLoading(true);
+    setPendingPreview(null);
+
+    try {
+      const allBlocks = adapterRef.current.getEditableBlocks();
+      const contextText = allBlocks.map((b) => b.text).join('\n');
+
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: 'complete_text',
+          targetId: selection.objectId,
+          parameters: { cursorOffset: contextText.length, contextText },
+          artifact: adapterRef.current.getArtifact(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setStatusMessage(`Continue writing error: ${data.error}`);
+      } else {
+        const completion = data.previewText ?? '';
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: completion,
+          operations: data.proposedOperations ?? [],
+        });
+      }
+    } catch (err) {
+      setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selection]);
+
+  const handleGenerateOutline = useCallback(async (topic: string) => {
+    if (!adapterRef.current) return;
+    setIsLoading(true);
+    setPendingPreview(null);
+
+    try {
+      const response = await fetch(`${AI_RUNTIME_URL}/ai/tasks/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: 'generate_outline',
+          targetId: adapterRef.current.getArtifact().rootNodeId,
+          parameters: { topic },
+          artifact: adapterRef.current.getArtifact(),
+        }),
+      });
+
+      const data = await response.json();
+      if (data.error) {
+        setStatusMessage(`Outline generation error: ${data.error}`);
+      } else {
+        setPendingPreview({
+          taskId: data.taskId,
+          previewText: data.previewText,
+          operations: data.proposedOperations,
+        });
+      }
+    } catch (err) {
+      setStatusMessage(`AI error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   // Global keyboard shortcuts
   const handleGlobalKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1364,6 +1730,10 @@ export const App: React.FC = () => {
               onConvertToParagraph={handleConvertToParagraph}
               findMatches={showFindReplace ? findMatches : undefined}
               currentMatchIndex={showFindReplace ? findCurrentIndex : undefined}
+              completionBlockId={completionBlockId}
+              completionText={completionText}
+              onAcceptCompletion={handleAcceptCompletion}
+              onDismissCompletion={handleDismissCompletion}
             />
           ) : (
             <div
@@ -1393,9 +1763,23 @@ export const App: React.FC = () => {
             onRewrite={handleRewrite}
             onApprove={handleApprove}
             onReject={handleReject}
+            onSummarize={handleSummarize}
+            onExtractActions={handleExtractActions}
+            onImproveWriting={handleImproveWriting}
+            onContinueWriting={handleContinueWriting}
+            onGenerateOutline={handleGenerateOutline}
           />
         )}
       </div>
+
+      {/* Floating AI actions toolbar */}
+      {isLoaded && (
+        <FloatingActions
+          isVisible={showFloatingActions && !pendingPreview}
+          onAction={handleFloatingAction}
+          isLoading={floatingActionLoading}
+        />
+      )}
 
       {/* Status bar */}
       {isLoaded && (
