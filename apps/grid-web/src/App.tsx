@@ -14,23 +14,23 @@ const MAX_UNDO_STACK = 50;
 
 /** Shared button base style */
 const toolbarBtnBase: React.CSSProperties = {
-  padding: '4px 10px',
-  fontSize: 12,
+  padding: '5px 12px',
+  fontSize: 13,
   fontFamily: 'inherit',
   border: '1px solid transparent',
-  borderRadius: 4,
+  borderRadius: 6,
   background: 'transparent',
-  color: '#3c4043',
+  color: '#374151',
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
-  height: 28,
+  height: 30,
   transition: 'background 0.15s, border-color 0.15s',
   whiteSpace: 'nowrap' as const,
 };
 
-const toolbarBtnHoverBg = '#e8eaed';
+const toolbarBtnHoverBg = '#f3f4f6';
 
 const ToolbarButton: React.FC<{
   onClick: () => void;
@@ -45,13 +45,13 @@ const ToolbarButton: React.FC<{
   const style: React.CSSProperties = {
     ...toolbarBtnBase,
     background: active
-      ? '#c2e7ff'
+      ? '#dcfce7'
       : hovered && !isDisabled
         ? toolbarBtnHoverBg
         : 'transparent',
-    color: isDisabled ? '#bdc1c6' : active ? '#001d35' : '#3c4043',
+    color: isDisabled ? '#bdc1c6' : active ? '#166534' : '#374151',
     cursor: isDisabled ? 'default' : 'pointer',
-    border: active ? '1px solid #c2e7ff' : '1px solid transparent',
+    border: active ? '1px solid #bbf7d0' : '1px solid transparent',
     opacity: isDisabled ? 0.7 : 1,
   };
 
@@ -70,7 +70,7 @@ const ToolbarButton: React.FC<{
 };
 
 const ToolbarSep: React.FC = () => (
-  <div style={{ width: 1, height: 20, background: '#dadce0', margin: '0 4px' }} />
+  <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 );
 
 export const App: React.FC = () => {
@@ -214,38 +214,37 @@ export const App: React.FC = () => {
   }, [artifact]);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', fontFamily: '"Inter", system-ui, -apple-system, sans-serif' }}>
       {/* Title bar */}
       <div
         style={{
-          padding: '6px 12px',
+          padding: '8px 16px',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-          fontSize: 14,
-          background: '#f9fbfd',
-          borderBottom: '1px solid #e8eaed',
-          minHeight: 28,
+          gap: 8,
+          fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+          fontSize: 13,
+          background: '#ffffff',
+          borderBottom: '1px solid #e2e5e9',
         }}
       >
         {/* App icon + name */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div
             style={{
-              width: 20,
-              height: 20,
-              borderRadius: 2,
-              background: '#0f9d58',
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              background: '#16a34a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#fff',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
             }}
           >
-            OC
+            G
           </div>
           <span style={{ fontWeight: 500, color: '#202124', fontSize: 15 }}>
             Grid
@@ -253,7 +252,7 @@ export const App: React.FC = () => {
         </div>
 
         {isDirty && (
-          <span style={{ color: '#e37400', fontSize: 11, fontWeight: 500, marginLeft: 4 }}>
+          <span style={{ color: '#d97706', fontSize: 11, fontWeight: 500, marginLeft: 4 }}>
             Unsaved
           </span>
         )}
@@ -263,7 +262,7 @@ export const App: React.FC = () => {
         {statusMessage && (
           <span
             style={{
-              color: '#5f6368',
+              color: '#9ca3af',
               fontSize: 11,
               maxWidth: 400,
               overflow: 'hidden',
@@ -279,16 +278,15 @@ export const App: React.FC = () => {
       {/* Toolbar */}
       <div
         style={{
-          padding: '2px 8px',
-          borderBottom: '1px solid #dadce0',
+          padding: '4px 16px',
+          borderBottom: '1px solid #e2e5e9',
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-          fontSize: 12,
-          background: '#f9fbfd',
-          minHeight: 36,
-          flexWrap: 'wrap',
+          gap: 4,
+          fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+          fontSize: 13,
+          background: '#ffffff',
+          flexWrap: 'wrap' as const,
         }}
       >
         <ToolbarButton onClick={handleOpen} title="New workbook">
@@ -377,41 +375,32 @@ export const App: React.FC = () => {
           onSave={handleSave}
         />
       ) : (
-        <div
-          style={{
-            flex: 1,
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexDirection: 'column',
+          gap: 12,
+          color: '#9ca3af',
+          fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+          background: '#ffffff',
+        }}>
+          <div style={{
+            width: 56,
+            height: 56,
+            borderRadius: 12,
+            background: '#f0fdf4',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flexDirection: 'column',
-            gap: 16,
-            color: '#5f6368',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-            background: '#f8f9fa',
-          }}
-        >
-          <div
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 8,
-              background: '#e8f5e9',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#0f9d58',
-              fontSize: 28,
-              fontWeight: 700,
-            }}
-          >
-            OC
+            fontSize: 24,
+            color: '#16a34a',
+          }}>
+            📊
           </div>
-          <div style={{ fontSize: 16, fontWeight: 500, color: '#202124' }}>
-            Grid
-          </div>
-          <div style={{ fontSize: 13, color: '#5f6368' }}>
-            Click &quot;New&quot; to create a workbook, or import an .xlsx file
-          </div>
+          <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280' }}>No workbook open</span>
+          <span style={{ fontSize: 13 }}>Click &quot;New&quot; to create a workbook, or import an .xlsx file</span>
         </div>
       )}
 

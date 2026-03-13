@@ -1540,17 +1540,18 @@ export const App: React.FC = () => {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 4,
-    padding: '5px 14px',
+    padding: '5px 12px',
     border: '1px solid #d1d5db',
     borderRadius: 6,
-    background: '#ffffff',
-    color: '#374151',
+    cursor: 'pointer',
     fontSize: 13,
     fontWeight: 500,
-    fontFamily: "'Inter', system-ui, sans-serif",
-    cursor: 'pointer',
-    transition: 'all 0.12s ease',
+    fontFamily: 'inherit',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    transition: 'background-color 0.15s, border-color 0.15s',
     lineHeight: '20px',
+    whiteSpace: 'nowrap' as const,
   };
 
   const topBtnDisabled: React.CSSProperties = {
@@ -1560,22 +1561,22 @@ export const App: React.FC = () => {
   };
 
   const collabBtnStyle: React.CSSProperties = collabEnabled
-    ? { ...topBtnBase, backgroundColor: '#059669', color: '#ffffff', borderColor: '#047857' }
+    ? { ...topBtnBase, backgroundColor: '#d1fae5', color: '#059669', borderColor: '#6ee7b7' }
     : topBtnBase;
 
   return (
     <div
-      style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: "'Inter', system-ui, sans-serif" }}
+      style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: '"Inter", system-ui, -apple-system, sans-serif' }}
       onKeyDown={handleGlobalKeyDown}
     >
       {/* Top bar */}
       <div
         style={{
-          padding: '8px 20px',
-          borderBottom: '1px solid #e5e7eb',
+          padding: '8px 16px',
+          borderBottom: '1px solid #e2e5e9',
           display: 'flex',
           alignItems: 'center',
-          fontFamily: "'Inter', system-ui, sans-serif",
+          gap: 8,
           fontSize: 13,
           backgroundColor: '#ffffff',
           flexShrink: 0,
@@ -1583,6 +1584,21 @@ export const App: React.FC = () => {
       >
         {/* Left: branding + doc title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <div style={{
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            background: '#3b82f6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontSize: 13,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}>
+            W
+          </div>
           <span style={{
             fontWeight: 700,
             fontSize: 15,
@@ -1630,7 +1646,7 @@ export const App: React.FC = () => {
           <button
             onClick={handleOpen}
             style={topBtnBase}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             New
@@ -1639,7 +1655,7 @@ export const App: React.FC = () => {
             onClick={handleSave}
             disabled={!isLoaded}
             style={isLoaded ? topBtnBase : topBtnDisabled}
-            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             Save
@@ -1647,7 +1663,7 @@ export const App: React.FC = () => {
           <button
             onClick={handleImportDocx}
             style={topBtnBase}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             Import
@@ -1656,19 +1672,19 @@ export const App: React.FC = () => {
             onClick={handleExportDocx}
             disabled={!isLoaded}
             style={isLoaded ? topBtnBase : topBtnDisabled}
-            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             Export
           </button>
 
           {/* Separator */}
-          <span style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', margin: '0 4px' }} />
+          <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
           <button
             onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
             style={showActionLog ? { ...topBtnBase, backgroundColor: '#ede9fe', color: '#7c3aed', borderColor: '#c4b5fd' } : topBtnBase}
-            onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             AI Log
@@ -1676,20 +1692,20 @@ export const App: React.FC = () => {
           <button
             onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
             style={showFunctionBrowser ? { ...topBtnBase, backgroundColor: '#dbeafe', color: '#2563eb', borderColor: '#93c5fd' } : topBtnBase}
-            onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#ffffff'; }}
           >
             Functions
           </button>
 
           {/* Separator */}
-          <span style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', margin: '0 4px' }} />
+          <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
           <button
             onClick={() => setCollabEnabled((v) => !v)}
             style={collabBtnStyle}
             onMouseEnter={(e) => {
-              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#f9fafb';
+              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#f3f4f6';
             }}
             onMouseLeave={(e) => {
               if (!collabEnabled) e.currentTarget.style.backgroundColor = '#ffffff';
@@ -1776,7 +1792,19 @@ export const App: React.FC = () => {
                 gap: 12,
               }}
             >
-              <span style={{ fontSize: 36, opacity: 0.3 }}>&#x1F4DD;</span>
+              <div style={{
+                width: 56,
+                height: 56,
+                borderRadius: 12,
+                background: '#eff6ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 24,
+                color: '#3b82f6',
+              }}>
+                ✏️
+              </div>
               <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280' }}>No document open</span>
               <span style={{ fontSize: 13 }}>Click "New" to create a document, or "Import" to open a .docx file</span>
             </div>

@@ -11,27 +11,28 @@ import { FunctionBrowser } from './components/FunctionBrowser.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 
 const topBarBtnBase: React.CSSProperties = {
-  padding: '6px 14px',
-  border: '1px solid #dadce0',
-  borderRadius: 4,
+  padding: '5px 12px',
+  border: '1px solid #d1d5db',
+  borderRadius: 6,
   cursor: 'pointer',
   fontSize: 13,
   fontWeight: 500,
-  fontFamily: 'system-ui, sans-serif',
+  fontFamily: 'inherit',
   background: '#ffffff',
-  color: '#3c4043',
-  transition: 'background 0.15s ease, box-shadow 0.15s ease',
+  color: '#374151',
+  transition: 'background 0.15s ease, border-color 0.15s ease',
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 6,
-  lineHeight: '1',
+  gap: 4,
+  lineHeight: '20px',
+  whiteSpace: 'nowrap' as const,
 };
 
 const topBarBtnPrimary: React.CSSProperties = {
   ...topBarBtnBase,
-  background: '#1a73e8',
+  background: '#7c3aed',
   color: '#ffffff',
-  borderColor: '#1a73e8',
+  borderColor: '#7c3aed',
 };
 
 export const App: React.FC = () => {
@@ -126,19 +127,18 @@ export const App: React.FC = () => {
   }, [artifact]);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: '"Inter", system-ui, -apple-system, sans-serif' }}>
       {/* Top application bar */}
       <div
         style={{
-          padding: '8px 20px',
-          borderBottom: '1px solid #dadce0',
+          padding: '8px 16px',
+          borderBottom: '1px solid #e2e5e9',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          fontSize: 14,
+          gap: 8,
+          fontSize: 13,
           background: '#ffffff',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-          zIndex: 10,
+          flexShrink: 0,
         }}
       >
         {/* App brand */}
@@ -149,15 +149,15 @@ export const App: React.FC = () => {
           marginRight: 8,
         }}>
           <div style={{
-            width: 28,
-            height: 28,
+            width: 24,
+            height: 24,
             borderRadius: 6,
-            background: 'linear-gradient(135deg, #1a73e8, #8ab4f8)',
+            background: '#7c3aed',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: '#fff',
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 700,
           }}>
             D
@@ -168,14 +168,14 @@ export const App: React.FC = () => {
         </div>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 24, background: '#dadce0' }} />
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
         {/* Action buttons */}
         <button
           onClick={handleOpen}
           style={topBarBtnPrimary}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#1557b0'}
-          onMouseLeave={(e) => e.currentTarget.style.background = '#1a73e8'}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#6d28d9'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#7c3aed'}
         >
           New
         </button>
@@ -187,19 +187,19 @@ export const App: React.FC = () => {
             opacity: artifact ? 1 : 0.4,
             cursor: artifact ? 'pointer' : 'not-allowed',
           }}
-          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f3f4f6'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
         >
           Save
         </button>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
         <button
           onClick={handleImportPptx}
           style={topBarBtnBase}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#f1f3f4'}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
           onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
         >
           Import .pptx
@@ -212,14 +212,14 @@ export const App: React.FC = () => {
             opacity: artifact ? 1 : 0.4,
             cursor: artifact ? 'pointer' : 'not-allowed',
           }}
-          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f3f4f6'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
         >
           Export .pptx
         </button>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
         <button
           onClick={() => {
@@ -231,39 +231,39 @@ export const App: React.FC = () => {
             ...topBarBtnBase,
             opacity: artifact ? 1 : 0.4,
             cursor: artifact ? 'pointer' : 'not-allowed',
-            background: artifact ? '#f9ab00' : '#ffffff',
-            color: artifact ? '#ffffff' : '#3c4043',
-            borderColor: artifact ? '#f9ab00' : '#dadce0',
+            background: artifact ? '#f59e0b' : '#ffffff',
+            color: artifact ? '#ffffff' : '#374151',
+            borderColor: artifact ? '#f59e0b' : '#d1d5db',
           }}
-          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#e69500'; }}
-          onMouseLeave={(e) => { if (artifact) e.currentTarget.style.background = '#f9ab00'; }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#d97706'; }}
+          onMouseLeave={(e) => { if (artifact) e.currentTarget.style.background = '#f59e0b'; }}
         >
           Present
         </button>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
         <button
           onClick={() => setCollabEnabled((v) => !v)}
           style={collabEnabled ? {
             ...topBarBtnBase,
-            background: '#188038',
-            color: '#ffffff',
-            borderColor: '#188038',
+            background: '#d1fae5',
+            color: '#059669',
+            borderColor: '#6ee7b7',
           } : topBarBtnBase}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = collabEnabled ? '#137333' : '#f1f3f4';
+            e.currentTarget.style.background = collabEnabled ? '#d1fae5' : '#f3f4f6';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = collabEnabled ? '#188038' : '#ffffff';
+            e.currentTarget.style.background = collabEnabled ? '#d1fae5' : '#ffffff';
           }}
         >
           {collabEnabled ? 'Collaborating' : 'Collaborate'}
         </button>
 
         {/* Separator */}
-        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
 
         <button
           onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
@@ -273,7 +273,7 @@ export const App: React.FC = () => {
             color: '#7c3aed',
             borderColor: '#c4b5fd',
           } : topBarBtnBase}
-          onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.background = '#f3f4f6'; }}
           onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.background = showActionLog ? '#ede9fe' : '#ffffff'; }}
         >
           AI Log
@@ -286,17 +286,17 @@ export const App: React.FC = () => {
             color: '#2563eb',
             borderColor: '#93c5fd',
           } : topBarBtnBase}
-          onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = '#f3f4f6'; }}
           onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = showFunctionBrowser ? '#dbeafe' : '#ffffff'; }}
         >
           Functions
         </button>
 
         {/* Status area - right side */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {isDirty && (
             <span style={{
-              color: '#e37400',
+              color: '#d97706',
               fontSize: 12,
               fontWeight: 500,
               display: 'flex',
@@ -307,14 +307,14 @@ export const App: React.FC = () => {
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: '#e37400',
+                background: '#d97706',
                 display: 'inline-block',
               }} />
               Unsaved changes
             </span>
           )}
           {statusMessage && (
-            <span style={{ color: '#80868b', fontSize: 12 }}>{statusMessage}</span>
+            <span style={{ color: '#9ca3af', fontSize: 12 }}>{statusMessage}</span>
           )}
         </div>
       </div>
@@ -342,38 +342,30 @@ export const App: React.FC = () => {
           onStopPresenting={() => setIsPresenting(false)}
         />
       ) : (
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#5f6368',
-            background: '#f8f9fa',
-            gap: 16,
-          }}
-        >
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexDirection: 'column',
+          gap: 12,
+          color: '#9ca3af',
+        }}>
           <div style={{
-            width: 64,
-            height: 64,
-            borderRadius: 16,
-            background: 'linear-gradient(135deg, #e8f0fe, #d2e3fc)',
+            width: 56,
+            height: 56,
+            borderRadius: 12,
+            background: '#f5f3ff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 28,
-            color: '#1a73e8',
-            fontWeight: 700,
+            fontSize: 24,
+            color: '#7c3aed',
           }}>
-            D
+            🎯
           </div>
-          <div style={{ fontSize: 16, fontWeight: 500 }}>
-            Click "New" to create a presentation
-          </div>
-          <div style={{ fontSize: 13, color: '#80868b' }}>
-            Or import a .pptx file to get started
-          </div>
+          <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280' }}>No presentation open</span>
+          <span style={{ fontSize: 13 }}>Click &quot;New&quot; to create a presentation</span>
         </div>
       )}
 
