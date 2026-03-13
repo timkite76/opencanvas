@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { CellNode, WorksheetNode } from '@opencanvas/grid-model';
-import { columnIndexToLabel, columnLabelToIndex, parseCellAddress } from '@opencanvas/grid-model';
+import { columnIndexToLabel, parseCellAddress } from '@opencanvas/grid-model';
 
 export interface GridPosition {
   col: number; // 0-based column index
@@ -21,9 +21,25 @@ interface VirtualGridProps {
 }
 
 const COL_WIDTH = 100;
-const ROW_HEIGHT = 28;
-const HEADER_WIDTH = 48;
-const HEADER_HEIGHT = 28;
+const ROW_HEIGHT = 24;
+const HEADER_WIDTH = 46;
+const HEADER_HEIGHT = 24;
+
+const COLORS = {
+  headerBg: '#f8f9fa',
+  headerBorderBottom: '#c0c0c0',
+  headerText: '#5f6368',
+  cellBorder: '#e2e2e2',
+  rowEven: '#ffffff',
+  rowOdd: '#f8f9fa',
+  selectedBorder: '#1a73e8',
+  selectedBg: '#e8f0fe',
+  editBg: '#ffffff',
+  textPrimary: '#202124',
+  textError: '#d93025',
+  textBoolean: '#1967d2',
+  cornerBg: '#f8f9fa',
+};
 
 function addressFromPosition(pos: GridPosition): string {
   return `${columnIndexToLabel(pos.col)}${pos.row}`;
@@ -36,6 +52,43 @@ function positionFromAddress(address: string): GridPosition | null {
   } catch {
     return null;
   }
+}
+
+/** Format a number for clean display: no floating-point artifacts, optional commas */
+function formatDisplayNumber(val: string): string {
+  const num = Number(val);
+  if (isNaN(num)) return val;
+  // Remove floating point artifacts by limiting to 10 significant digits
+  const cleaned = parseFloat(num.toPrecision(10));
+  // Format with commas for large integers, or clean decimal display
+  if (Number.isInteger(cleaned) && Math.abs(cleaned) >= 1000) {
+    return cleaned.toLocaleString('en-US');
+  }
+  return String(cleaned);
+}
+
+function getCellTextAlign(valueType?: string): 'left' | 'right' | 'center' {
+  if (valueType === 'number') return 'right';
+  if (valueType === 'boolean') return 'center';
+  return 'left';
+}
+
+function getCellColor(valueType?: string): string {
+  if (valueType === 'error') return COLORS.textError;
+  if (valueType === 'boolean') return COLORS.textBoolean;
+  return COLORS.textPrimary;
+}
+
+function getDisplayValue(cell: CellNode | undefined): string {
+  if (!cell) return '';
+  const raw = cell.displayValue ?? '';
+  if (cell.valueType === 'number' && raw !== '') {
+    return formatDisplayNumber(raw);
+  }
+  if (cell.valueType === 'boolean') {
+    return raw.toUpperCase();
+  }
+  return raw;
 }
 
 export const VirtualGrid: React.FC<VirtualGridProps> = ({
@@ -343,6 +396,10 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
   const totalWidth = HEADER_WIDTH + totalCols * COL_WIDTH;
   const totalHeight = HEADER_HEIGHT + totalRows * ROW_HEIGHT;
 
+  // Determine if a column header is in the selected column
+  const selectedCol = selectedPosition ? columnIndexToLabel(selectedPosition.col) : null;
+  const selectedRow = selectedPosition ? selectedPosition.row : null;
+
   return (
     <div
       ref={containerRef}
@@ -353,6 +410,8 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
         flex: 1,
         position: 'relative',
         outline: 'none',
+        background: '#ffffff',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       }}
     >
       <div style={{ width: totalWidth, height: totalHeight, position: 'relative' }}>
@@ -364,8 +423,9 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             left: 0,
             width: HEADER_WIDTH,
             height: HEADER_HEIGHT,
-            background: '#f5f5f5',
-            border: '1px solid #ddd',
+            background: COLORS.headerBg,
+            borderBottom: `1px solid ${COLORS.headerBorderBottom}`,
+            borderRight: `1px solid ${COLORS.cellBorder}`,
             zIndex: 4,
             boxSizing: 'border-box',
           }}
@@ -383,27 +443,32 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
           }}
         >
           <div style={{ position: 'absolute', left: HEADER_WIDTH, top: 0, display: 'flex' }}>
-            {columns.map((col) => (
-              <div
-                key={col}
-                style={{
-                  width: COL_WIDTH,
-                  height: HEADER_HEIGHT,
-                  background: '#f5f5f5',
-                  border: '1px solid #ddd',
-                  borderLeft: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 600,
-                  fontSize: 12,
-                  fontFamily: '"Courier New", monospace',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {col}
-              </div>
-            ))}
+            {columns.map((col) => {
+              const isColSelected = col === selectedCol;
+              return (
+                <div
+                  key={col}
+                  style={{
+                    width: COL_WIDTH,
+                    height: HEADER_HEIGHT,
+                    background: isColSelected ? '#d3e3fd' : COLORS.headerBg,
+                    borderBottom: `1px solid ${COLORS.headerBorderBottom}`,
+                    borderRight: `1px solid ${COLORS.cellBorder}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 500,
+                    fontSize: 11,
+                    color: isColSelected ? '#1a73e8' : COLORS.headerText,
+                    boxSizing: 'border-box',
+                    userSelect: 'none',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {col}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -417,30 +482,34 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
             top: HEADER_HEIGHT,
           }}
         >
-          {rows.map((row) => (
-            <div
-              key={row}
-              style={{
-                position: 'absolute',
-                top: (row - 1) * ROW_HEIGHT,
-                left: 0,
-                width: HEADER_WIDTH,
-                height: ROW_HEIGHT,
-                background: '#f5f5f5',
-                border: '1px solid #ddd',
-                borderTop: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 600,
-                fontSize: 12,
-                fontFamily: '"Courier New", monospace',
-                boxSizing: 'border-box',
-              }}
-            >
-              {row}
-            </div>
-          ))}
+          {rows.map((row) => {
+            const isRowSelected = row === selectedRow;
+            return (
+              <div
+                key={row}
+                style={{
+                  position: 'absolute',
+                  top: (row - 1) * ROW_HEIGHT,
+                  left: 0,
+                  width: HEADER_WIDTH,
+                  height: ROW_HEIGHT,
+                  background: isRowSelected ? '#d3e3fd' : (row % 2 === 0 ? COLORS.rowOdd : COLORS.headerBg),
+                  borderBottom: `1px solid ${COLORS.cellBorder}`,
+                  borderRight: `1px solid ${COLORS.cellBorder}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 400,
+                  fontSize: 11,
+                  color: isRowSelected ? '#1a73e8' : COLORS.headerText,
+                  boxSizing: 'border-box',
+                  userSelect: 'none',
+                }}
+              >
+                {row}
+              </div>
+            );
+          })}
         </div>
 
         {/* Cell area */}
@@ -456,44 +525,51 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
               {columns.map((col) => {
                 const address = `${col}${row}`;
                 const cell = cells.get(address);
-                const isSelected =
-                  selectedAddress === address;
+                const isSelected = selectedAddress === address;
                 const isEditing = editingAddress === address;
+                const rowBg = row % 2 === 0 ? COLORS.rowOdd : COLORS.rowEven;
+
+                const displayVal = getDisplayValue(cell);
+                const tooltipText = cell?.formula
+                  ? `${address}: ${cell.formula}`
+                  : displayVal
+                    ? `${address}: ${displayVal}`
+                    : address;
 
                 return (
                   <div
                     key={address}
                     onClick={() => handleCellClick(address)}
                     onDoubleClick={() => handleCellDoubleClick(address)}
+                    title={tooltipText}
                     style={{
                       width: COL_WIDTH,
                       height: ROW_HEIGHT,
-                      border: isSelected
-                        ? '2px solid #1a73e8'
-                        : '1px solid #ddd',
-                      padding: isSelected ? '3px 7px' : '4px 8px',
+                      borderBottom: `1px solid ${COLORS.cellBorder}`,
+                      borderRight: `1px solid ${COLORS.cellBorder}`,
+                      padding: isSelected && !isEditing ? '0 5px' : '0 6px',
                       cursor: 'cell',
-                      background: isSelected ? '#e8f0fe' : '#fff',
+                      background: isEditing
+                        ? COLORS.editBg
+                        : isSelected
+                          ? COLORS.selectedBg
+                          : rowBg,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      textAlign:
-                        cell?.valueType === 'number' ? 'right' : 'left',
-                      color:
-                        cell?.valueType === 'error' ? '#d32f2f' : '#222',
-                      fontFamily: '"Courier New", monospace',
-                      fontSize: 13,
+                      textAlign: getCellTextAlign(cell?.valueType),
+                      color: getCellColor(cell?.valueType),
+                      fontSize: 12,
                       boxSizing: 'border-box',
                       position: 'relative',
-                      lineHeight: `${ROW_HEIGHT - 8}px`,
+                      lineHeight: `${ROW_HEIGHT}px`,
+                      // Selection outline rendered via box-shadow to avoid layout shift
+                      boxShadow: isSelected && !isEditing
+                        ? `inset 0 0 0 2px ${COLORS.selectedBorder}`
+                        : 'none',
                     }}
-                    title={
-                      cell?.formula
-                        ? `Formula: ${cell.formula}`
-                        : undefined
-                    }
                   >
-                    {isEditing ? null : (cell?.displayValue ?? '')}
+                    {isEditing ? null : displayVal}
                     {isEditing && (
                       <input
                         ref={editInputRef}
@@ -504,18 +580,20 @@ export const VirtualGrid: React.FC<VirtualGridProps> = ({
                         onBlur={() => commitEdit(false)}
                         style={{
                           position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          border: '2px solid #1a73e8',
-                          padding: '3px 7px',
-                          fontFamily: '"Courier New", monospace',
-                          fontSize: 13,
+                          top: -2,
+                          left: -2,
+                          width: COL_WIDTH + 4,
+                          height: ROW_HEIGHT + 4,
+                          border: `2px solid ${COLORS.selectedBorder}`,
+                          padding: '0 6px',
+                          fontFamily: 'inherit',
+                          fontSize: 12,
                           outline: 'none',
                           boxSizing: 'border-box',
                           background: '#fff',
                           zIndex: 10,
+                          lineHeight: `${ROW_HEIGHT}px`,
+                          boxShadow: '0 2px 8px rgba(26, 115, 232, 0.2)',
                         }}
                       />
                     )}

@@ -8,6 +8,30 @@ import { DeckShell } from './components/DeckShell.js';
 import { CollabBar } from './components/CollabBar.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 
+const topBarBtnBase: React.CSSProperties = {
+  padding: '6px 14px',
+  border: '1px solid #dadce0',
+  borderRadius: 4,
+  cursor: 'pointer',
+  fontSize: 13,
+  fontWeight: 500,
+  fontFamily: 'system-ui, sans-serif',
+  background: '#ffffff',
+  color: '#3c4043',
+  transition: 'background 0.15s ease, box-shadow 0.15s ease',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  lineHeight: '1',
+};
+
+const topBarBtnPrimary: React.CSSProperties = {
+  ...topBarBtnBase,
+  background: '#1a73e8',
+  color: '#ffffff',
+  borderColor: '#1a73e8',
+};
+
 export const App: React.FC = () => {
   const service = useMemo(() => createPresentationService(), []);
   const [artifact, setArtifact] = useState<ArtifactEnvelope<DeckNode> | null>(null);
@@ -96,44 +120,144 @@ export const App: React.FC = () => {
   }, [artifact]);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif' }}>
+      {/* Top application bar */}
       <div
         style={{
-          padding: '8px 16px',
-          borderBottom: '1px solid #ddd',
+          padding: '8px 20px',
+          borderBottom: '1px solid #dadce0',
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          fontFamily: 'system-ui, sans-serif',
           fontSize: 14,
+          background: '#ffffff',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+          zIndex: 10,
         }}
       >
-        <strong>OpenCanvas Deck</strong>
-        <button onClick={handleOpen} style={{ padding: '4px 12px' }}>
+        {/* App brand */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginRight: 8,
+        }}>
+          <div style={{
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            background: 'linear-gradient(135deg, #1a73e8, #8ab4f8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#fff',
+            fontSize: 14,
+            fontWeight: 700,
+          }}>
+            D
+          </div>
+          <span style={{ fontWeight: 600, color: '#202124', fontSize: 15 }}>
+            OpenCanvas Deck
+          </span>
+        </div>
+
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: '#dadce0' }} />
+
+        {/* Action buttons */}
+        <button
+          onClick={handleOpen}
+          style={topBarBtnPrimary}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#1557b0'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#1a73e8'}
+        >
           Open Sample
         </button>
-        <button onClick={handleSave} disabled={!artifact} style={{ padding: '4px 12px' }}>
+        <button
+          onClick={handleSave}
+          disabled={!artifact}
+          style={{
+            ...topBarBtnBase,
+            opacity: artifact ? 1 : 0.4,
+            cursor: artifact ? 'pointer' : 'not-allowed',
+          }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+        >
           Save
         </button>
-        <button onClick={handleImportPptx} style={{ padding: '4px 12px' }}>
+
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+
+        <button
+          onClick={handleImportPptx}
+          style={topBarBtnBase}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#f1f3f4'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+        >
           Import .pptx
         </button>
-        <button onClick={handleExportPptx} disabled={!artifact} style={{ padding: '4px 12px' }}>
+        <button
+          onClick={handleExportPptx}
+          disabled={!artifact}
+          style={{
+            ...topBarBtnBase,
+            opacity: artifact ? 1 : 0.4,
+            cursor: artifact ? 'pointer' : 'not-allowed',
+          }}
+          onMouseEnter={(e) => { if (artifact) e.currentTarget.style.background = '#f1f3f4'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+        >
           Export .pptx
         </button>
+
+        {/* Separator */}
+        <div style={{ width: 1, height: 24, background: '#e8eaed' }} />
+
         <button
           onClick={() => setCollabEnabled((v) => !v)}
-          style={{
-            padding: '4px 12px',
-            backgroundColor: collabEnabled ? '#4caf50' : undefined,
-            color: collabEnabled ? '#fff' : undefined,
-            border: collabEnabled ? '1px solid #388e3c' : undefined,
+          style={collabEnabled ? {
+            ...topBarBtnBase,
+            background: '#188038',
+            color: '#ffffff',
+            borderColor: '#188038',
+          } : topBarBtnBase}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = collabEnabled ? '#137333' : '#f1f3f4';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = collabEnabled ? '#188038' : '#ffffff';
           }}
         >
           {collabEnabled ? 'Collaborating' : 'Collaborate'}
         </button>
-        {isDirty && <span style={{ color: '#e67e22' }}>Unsaved changes</span>}
-        {statusMessage && <span style={{ color: '#888' }}>{statusMessage}</span>}
+
+        {/* Status area - right side */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {isDirty && (
+            <span style={{
+              color: '#e37400',
+              fontSize: 12,
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}>
+              <span style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#e37400',
+                display: 'inline-block',
+              }} />
+              Unsaved changes
+            </span>
+          )}
+          {statusMessage && (
+            <span style={{ color: '#80868b', fontSize: 12 }}>{statusMessage}</span>
+          )}
+        </div>
       </div>
 
       {collabEnabled && (
@@ -156,13 +280,34 @@ export const App: React.FC = () => {
           style={{
             flex: 1,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#888',
-            fontFamily: 'system-ui, sans-serif',
+            color: '#5f6368',
+            background: '#f8f9fa',
+            gap: 16,
           }}
         >
-          Click "Open Sample" to load a presentation
+          <div style={{
+            width: 64,
+            height: 64,
+            borderRadius: 16,
+            background: 'linear-gradient(135deg, #e8f0fe, #d2e3fc)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 28,
+            color: '#1a73e8',
+            fontWeight: 700,
+          }}>
+            D
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 500 }}>
+            Click "Open Sample" to load a presentation
+          </div>
+          <div style={{ fontSize: 13, color: '#80868b' }}>
+            Or import a .pptx file to get started
+          </div>
         </div>
       )}
     </div>

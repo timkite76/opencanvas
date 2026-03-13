@@ -20,6 +20,29 @@ interface DeckShellProps {
 
 const AI_RUNTIME_URL = 'http://localhost:4001';
 
+const undoRedoBtnStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: 12,
+  fontWeight: 500,
+  fontFamily: 'system-ui, sans-serif',
+  border: '1px solid #dadce0',
+  borderRadius: 4,
+  background: '#ffffff',
+  color: '#3c4043',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  transition: 'background 0.15s ease',
+};
+
+const undoRedoBtnDisabled: React.CSSProperties = {
+  ...undoRedoBtnStyle,
+  opacity: 0.35,
+  cursor: 'not-allowed',
+  pointerEvents: 'none' as const,
+};
+
 export const DeckShell: React.FC<DeckShellProps> = ({
   artifact,
   service,
@@ -31,6 +54,8 @@ export const DeckShell: React.FC<DeckShellProps> = ({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiPreviewText, setAiPreviewText] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [notesExpanded, setNotesExpanded] = useState(true);
+  const [notesEditing, setNotesEditing] = useState(false);
 
   const undoRedo = useUndoRedoManager();
 
@@ -51,6 +76,7 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     setSelectedObjectId(null);
     setAiPreviewText(null);
     setPendingTaskId(null);
+    setNotesEditing(false);
   }, []);
 
   const handleObjectSelect = useCallback((objectId: string | null) => {
@@ -371,9 +397,54 @@ export const DeckShell: React.FC<DeckShellProps> = ({
     setPendingTaskId(null);
   }, [pendingTaskId]);
 
+  // Speaker notes edit handler
+  const handleNotesBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    setNotesEditing(false);
+    if (!effectiveSlideId || !activeNotes) return;
+
+    const newText = e.currentTarget.textContent ?? '';
+    const originalText = activeNotes.content.map((r) => r.text).join('');
+
+    if (newText === originalText) return;
+
+    // Find the notes node ID
+    const slideNode = artifact.nodes[effectiveSlideId];
+    if (!slideNode?.childIds) return;
+
+    let notesNodeId: string | null = null;
+    for (const cid of slideNode.childIds) {
+      const child = artifact.nodes[cid] as unknown as Record<string, unknown> | undefined;
+      if (child?.type === 'speaker_notes') {
+        notesNodeId = cid;
+        break;
+      }
+    }
+
+    if (!notesNodeId) return;
+
+    undoRedo.pushSnapshot(artifact);
+    const op: Operation = {
+      operationId: uuidv4(),
+      type: 'replace_text',
+      artifactId: artifact.artifactId,
+      targetId: notesNodeId,
+      actorType: 'user',
+      timestamp: new Date().toISOString(),
+      payload: {
+        startOffset: 0,
+        endOffset: originalText.length,
+        newText,
+        oldText: originalText,
+      },
+    };
+    const next = service.applyOp(artifact, op);
+    onArtifactChange(next);
+  }, [effectiveSlideId, artifact, service, onArtifactChange, undoRedo]);
+
   const activeSlide = effectiveSlideId ? slideIndex.slideById[effectiveSlideId] : undefined;
   const activeObjectIds = effectiveSlideId ? (slideIndex.objectIdsBySlideId[effectiveSlideId] ?? []) : [];
   const activeNotes = effectiveSlideId ? slideIndex.notesBySlideId[effectiveSlideId] : undefined;
+  const notesText = activeNotes?.content.map((r) => r.text).join('') ?? '';
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', fontFamily: 'system-ui, sans-serif' }}>
@@ -392,38 +463,32 @@ export const DeckShell: React.FC<DeckShellProps> = ({
         {/* Undo/Redo bar */}
         <div style={{
           padding: '4px 16px',
-          borderBottom: '1px solid #eee',
+          borderBottom: '1px solid #e8eaed',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          background: '#f8f8f8',
+          gap: 6,
+          background: '#ffffff',
           fontSize: 12,
         }}>
           <button
             onClick={handleUndo}
             disabled={!undoRedo.canUndo}
-            style={{
-              padding: '2px 8px',
-              fontSize: 11,
-              cursor: undoRedo.canUndo ? 'pointer' : 'default',
-              opacity: undoRedo.canUndo ? 1 : 0.4,
-            }}
+            style={undoRedo.canUndo ? undoRedoBtnStyle : undoRedoBtnDisabled}
             title="Undo (Ctrl+Z)"
+            onMouseEnter={(e) => { if (undoRedo.canUndo) e.currentTarget.style.background = '#f1f3f4'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
           >
-            Undo
+            <span style={{ fontSize: 14 }}>&#x21A9;</span> Undo
           </button>
           <button
             onClick={handleRedo}
             disabled={!undoRedo.canRedo}
-            style={{
-              padding: '2px 8px',
-              fontSize: 11,
-              cursor: undoRedo.canRedo ? 'pointer' : 'default',
-              opacity: undoRedo.canRedo ? 1 : 0.4,
-            }}
+            style={undoRedo.canRedo ? undoRedoBtnStyle : undoRedoBtnDisabled}
             title="Redo (Ctrl+Shift+Z)"
+            onMouseEnter={(e) => { if (undoRedo.canRedo) e.currentTarget.style.background = '#f1f3f4'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
           >
-            Redo
+            <span style={{ fontSize: 14 }}>&#x21AA;</span> Redo
           </button>
         </div>
 
@@ -450,18 +515,120 @@ export const DeckShell: React.FC<DeckShellProps> = ({
           onDeleteObject={handleDeleteObject}
           onDuplicateObject={handleDuplicateObject}
         />
-        {activeNotes && (
-          <div style={{
-            padding: '8px 16px',
-            borderTop: '1px solid #ddd',
-            background: '#fffbe6',
-            fontSize: 12,
-            color: '#666',
-          }}>
-            <strong>Speaker Notes: </strong>
-            {activeNotes.content.map((r) => r.text).join('')}
+
+        {/* Speaker Notes - collapsible/expandable/editable */}
+        <div style={{
+          borderTop: '1px solid #dadce0',
+          background: '#ffffff',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Notes header - always visible, acts as toggle */}
+          <div
+            onClick={() => setNotesExpanded((v) => !v)}
+            style={{
+              padding: '6px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              userSelect: 'none',
+              background: '#fafafa',
+              borderBottom: notesExpanded ? '1px solid #e8eaed' : 'none',
+              transition: 'background 0.15s ease',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f3f4'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#fafafa'}
+          >
+            <span style={{
+              fontSize: 10,
+              color: '#5f6368',
+              transition: 'transform 0.2s ease',
+              transform: notesExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+              display: 'inline-block',
+            }}>
+              &#x25B6;
+            </span>
+            <span style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#3c4043',
+            }}>
+              Speaker Notes
+            </span>
+            {!notesExpanded && notesText && (
+              <span style={{
+                fontSize: 11,
+                color: '#80868b',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flex: 1,
+                maxWidth: 400,
+              }}>
+                {notesText}
+              </span>
+            )}
+            {notesExpanded && activeNotes && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNotesEditing(true);
+                }}
+                style={{
+                  marginLeft: 'auto',
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  border: '1px solid #dadce0',
+                  borderRadius: 4,
+                  background: notesEditing ? '#e8f0fe' : '#ffffff',
+                  color: notesEditing ? '#1a73e8' : '#5f6368',
+                  cursor: 'pointer',
+                  fontFamily: 'system-ui, sans-serif',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                {notesEditing ? 'Editing' : 'Edit'}
+              </button>
+            )}
           </div>
-        )}
+
+          {/* Notes content */}
+          {notesExpanded && (
+            <div
+              style={{
+                padding: '10px 16px',
+                fontSize: 13,
+                lineHeight: 1.6,
+                color: '#3c4043',
+                minHeight: 48,
+                maxHeight: 120,
+                overflowY: 'auto',
+                outline: 'none',
+                background: notesEditing ? '#fffef7' : '#ffffff',
+                borderLeft: notesEditing ? '3px solid #fbbc04' : '3px solid transparent',
+                transition: 'background 0.15s ease, border-color 0.15s ease',
+                caretColor: '#1a73e8',
+              }}
+              contentEditable={notesEditing}
+              suppressContentEditableWarning
+              onBlur={handleNotesBlur}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setNotesEditing(false);
+                  (e.target as HTMLElement).blur();
+                }
+              }}
+            >
+              {notesText || (
+                <span style={{ color: '#9e9e9e', fontStyle: 'italic' }}>
+                  {activeNotes ? 'No speaker notes' : 'No notes for this slide'}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right: AI panel */}

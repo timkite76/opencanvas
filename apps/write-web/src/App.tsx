@@ -11,6 +11,7 @@ import { WriteSurface } from './components/WriteSurface.js';
 import { AiPanel } from './components/AiPanel.js';
 import { Toolbar } from './components/Toolbar.js';
 import { CollabBar } from './components/CollabBar.js';
+import { StatusBar } from './components/StatusBar.js';
 import { useCollaboration } from './hooks/useCollaboration.js';
 import { useUndoRedo } from './hooks/useUndoRedo.js';
 
@@ -622,49 +623,149 @@ export const App: React.FC = () => {
   // Find the focused block for the toolbar
   const focusedBlock = focusedBlockId ? blocks.find((b) => b.id === focusedBlockId) ?? null : null;
 
+  // Shared top-bar button styles
+  const topBtnBase: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '5px 14px',
+    border: '1px solid #d1d5db',
+    borderRadius: 6,
+    background: '#ffffff',
+    color: '#374151',
+    fontSize: 13,
+    fontWeight: 500,
+    fontFamily: "'Inter', system-ui, sans-serif",
+    cursor: 'pointer',
+    transition: 'all 0.12s ease',
+    lineHeight: '20px',
+  };
+
+  const topBtnDisabled: React.CSSProperties = {
+    ...topBtnBase,
+    opacity: 0.4,
+    cursor: 'default',
+  };
+
+  const collabBtnStyle: React.CSSProperties = collabEnabled
+    ? { ...topBtnBase, backgroundColor: '#059669', color: '#ffffff', borderColor: '#047857' }
+    : topBtnBase;
+
   return (
     <div
-      style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}
+      style={{ height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: "'Inter', system-ui, sans-serif" }}
       onKeyDown={handleGlobalKeyDown}
     >
       {/* Top bar */}
       <div
         style={{
-          padding: '8px 16px',
-          borderBottom: '1px solid #ddd',
+          padding: '8px 20px',
+          borderBottom: '1px solid #e5e7eb',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: 14,
+          fontFamily: "'Inter', system-ui, sans-serif",
+          fontSize: 13,
+          backgroundColor: '#ffffff',
+          flexShrink: 0,
         }}
       >
-        <strong>OpenCanvas Write</strong>
-        <button onClick={handleOpen} style={{ padding: '4px 12px' }}>
-          Open Sample
-        </button>
-        <button onClick={handleSave} disabled={!isLoaded} style={{ padding: '4px 12px' }}>
-          Save
-        </button>
-        <button onClick={handleImportDocx} style={{ padding: '4px 12px' }}>
-          Import .docx
-        </button>
-        <button onClick={handleExportDocx} disabled={!isLoaded} style={{ padding: '4px 12px' }}>
-          Export .docx
-        </button>
-        <button
-          onClick={() => setCollabEnabled((v) => !v)}
-          style={{
-            padding: '4px 12px',
-            backgroundColor: collabEnabled ? '#4caf50' : undefined,
-            color: collabEnabled ? '#fff' : undefined,
-            border: collabEnabled ? '1px solid #388e3c' : undefined,
-          }}
-        >
-          {collabEnabled ? 'Collaborating' : 'Collaborate'}
-        </button>
-        {isDirty && <span style={{ color: '#e67e22' }}>Unsaved changes</span>}
-        {statusMessage && <span style={{ color: '#888' }}>{statusMessage}</span>}
+        {/* Left: branding + doc title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{
+            fontWeight: 700,
+            fontSize: 15,
+            color: '#111827',
+            letterSpacing: '-0.01em',
+            whiteSpace: 'nowrap',
+          }}>
+            OpenCanvas Write
+          </span>
+          {isLoaded && (
+            <span style={{
+              color: '#6b7280',
+              fontSize: 13,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>
+              Sample Document
+            </span>
+          )}
+        </div>
+
+        {/* Center: status */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
+          {isDirty && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: '#d97706',
+              fontSize: 12,
+              fontWeight: 500,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#d97706', display: 'inline-block' }} />
+              Unsaved
+            </span>
+          )}
+          {statusMessage && (
+            <span style={{ color: '#9ca3af', fontSize: 12 }}>{statusMessage}</span>
+          )}
+        </div>
+
+        {/* Right: action buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={handleOpen}
+            style={topBtnBase}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            Open
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!isLoaded}
+            style={isLoaded ? topBtnBase : topBtnDisabled}
+            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            Save
+          </button>
+          <button
+            onClick={handleImportDocx}
+            style={topBtnBase}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            Import
+          </button>
+          <button
+            onClick={handleExportDocx}
+            disabled={!isLoaded}
+            style={isLoaded ? topBtnBase : topBtnDisabled}
+            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f9fafb'; }}
+            onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+          >
+            Export
+          </button>
+
+          {/* Separator */}
+          <span style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', margin: '0 4px' }} />
+
+          <button
+            onClick={() => setCollabEnabled((v) => !v)}
+            style={collabBtnStyle}
+            onMouseEnter={(e) => {
+              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#f9fafb';
+            }}
+            onMouseLeave={(e) => {
+              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#ffffff';
+            }}
+          >
+            {collabEnabled ? 'Collaborating' : 'Collaborate'}
+          </button>
+        </div>
       </div>
 
       {/* Collaboration bar */}
@@ -706,14 +807,18 @@ export const App: React.FC = () => {
             <div
               style={{
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100%',
-                color: '#888',
-                fontFamily: 'system-ui, sans-serif',
+                color: '#9ca3af',
+                fontFamily: "'Inter', system-ui, sans-serif",
+                gap: 12,
               }}
             >
-              Click "Open Sample" to load a document
+              <span style={{ fontSize: 36, opacity: 0.3 }}>&#x1F4DD;</span>
+              <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280' }}>No document open</span>
+              <span style={{ fontSize: 13 }}>Click "Open" to load a sample document, or "Import" to open a .docx file</span>
             </div>
           )}
         </div>
@@ -729,6 +834,15 @@ export const App: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Status bar */}
+      {isLoaded && (
+        <StatusBar
+          blocks={blocks}
+          focusedBlock={focusedBlock}
+          isDirty={isDirty}
+        />
+      )}
     </div>
   );
 };

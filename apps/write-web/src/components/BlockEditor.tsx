@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState } from 'react';
 import type { EditableBlock, CanonicalSelection, TextRun, InlineMark } from '@opencanvas/write-editor';
 
 interface BlockEditorProps {
@@ -20,7 +20,7 @@ function renderTextRun(run: TextRun, index: number): React.ReactNode {
 
   // Wrap in mark elements from innermost to outermost
   if (marks.includes('code')) {
-    node = <code key={`code-${index}`} style={{ background: '#f0f0f0', padding: '1px 4px', borderRadius: 2, fontFamily: 'monospace', fontSize: '0.9em' }}>{node}</code>;
+    node = <code key={`code-${index}`} style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: '0.88em', color: '#d6336c' }}>{node}</code>;
   }
   if (marks.includes('strikethrough')) {
     node = <s>{node}</s>;
@@ -45,6 +45,22 @@ function hasInlineMarks(runs: TextRun[]): boolean {
   return runs.some((r) => r.marks && r.marks.length > 0);
 }
 
+/** Heading styles by level */
+const HEADING_STYLES: Record<number, React.CSSProperties> = {
+  1: { fontSize: 28, fontWeight: 700, lineHeight: 1.3, marginTop: 8, marginBottom: 4, letterSpacing: '-0.02em', color: '#111827' },
+  2: { fontSize: 22, fontWeight: 700, lineHeight: 1.35, marginTop: 6, marginBottom: 3, letterSpacing: '-0.01em', color: '#1f2937' },
+  3: { fontSize: 18, fontWeight: 700, lineHeight: 1.4, marginTop: 4, marginBottom: 2, color: '#374151' },
+  4: { fontSize: 16, fontWeight: 700, lineHeight: 1.5, marginTop: 2, marginBottom: 2, color: '#4b5563' },
+};
+
+const PARAGRAPH_STYLE: React.CSSProperties = {
+  fontSize: 16,
+  lineHeight: 1.8,
+  marginTop: 0,
+  marginBottom: 0,
+  color: '#1a1a1a',
+};
+
 export const BlockEditor: React.FC<BlockEditorProps> = ({
   block,
   isSelected,
@@ -55,6 +71,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
   onDeleteBlock,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
 
   const handleInput = useCallback(() => {
     if (!ref.current) return;
@@ -152,13 +169,16 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     onFocus(block.id);
   }, [block.id, onFocus]);
 
-  const style: React.CSSProperties = {
-    outline: isSelected ? '2px solid #4a90d9' : 'none',
-    borderRadius: 4,
-    padding: '4px 8px',
-    margin: '4px 0',
+  const baseStyle: React.CSSProperties = {
+    borderRadius: 3,
+    padding: '3px 6px',
+    margin: '2px -6px',
     minHeight: '1.4em',
     cursor: 'text',
+    transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+    backgroundColor: isHovered && !isSelected ? '#fafbfc' : 'transparent',
+    outline: 'none',
+    boxShadow: isSelected ? 'inset 2px 0 0 #4a90d9' : 'none',
   };
 
   // Determine content: render runs with marks if any marks exist, otherwise plain text
@@ -175,17 +195,20 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
     onKeyDown: handleKeyDown,
     onSelect: handleSelect,
     onFocus: handleFocus,
-    style,
+    onMouseEnter: () => setIsHovered(true),
+    onMouseLeave: () => setIsHovered(false),
     'data-block-id': block.id,
   };
 
   if (block.type === 'heading') {
     const level = block.level ?? 1;
-    if (level === 1) return <h1 {...commonProps}>{content}</h1>;
-    if (level === 2) return <h2 {...commonProps}>{content}</h2>;
-    if (level === 3) return <h3 {...commonProps}>{content}</h3>;
-    return <h4 {...commonProps}>{content}</h4>;
+    const headingStyle = HEADING_STYLES[level] || HEADING_STYLES[4];
+    const style = { ...baseStyle, ...headingStyle };
+    if (level === 1) return <h1 {...commonProps} style={style}>{content}</h1>;
+    if (level === 2) return <h2 {...commonProps} style={style}>{content}</h2>;
+    if (level === 3) return <h3 {...commonProps} style={style}>{content}</h3>;
+    return <h4 {...commonProps} style={style}>{content}</h4>;
   }
 
-  return <p {...commonProps}>{content}</p>;
+  return <p {...commonProps} style={{ ...baseStyle, ...PARAGRAPH_STYLE }}>{content}</p>;
 };

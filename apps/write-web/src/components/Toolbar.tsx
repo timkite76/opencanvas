@@ -10,24 +10,25 @@ interface ToolbarProps {
   onRedo: () => void;
 }
 
-const BLOCK_OPTIONS: Array<{ label: string; type: 'paragraph' | 'heading'; level?: number }> = [
-  { label: 'Paragraph', type: 'paragraph' },
-  { label: 'Heading 1', type: 'heading', level: 1 },
-  { label: 'Heading 2', type: 'heading', level: 2 },
-  { label: 'Heading 3', type: 'heading', level: 3 },
+const BLOCK_OPTIONS: Array<{ label: string; shortLabel: string; type: 'paragraph' | 'heading'; level?: number }> = [
+  { label: 'Paragraph', shortLabel: 'P', type: 'paragraph' },
+  { label: 'Heading 1', shortLabel: 'H1', type: 'heading', level: 1 },
+  { label: 'Heading 2', shortLabel: 'H2', type: 'heading', level: 2 },
+  { label: 'Heading 3', shortLabel: 'H3', type: 'heading', level: 3 },
 ];
 
 interface InlineFormatOption {
   label: string;
+  displayLabel: React.ReactNode;
   command: string;
-  style: React.CSSProperties;
+  title: string;
 }
 
 const INLINE_FORMAT_OPTIONS: InlineFormatOption[] = [
-  { label: 'B', command: 'bold', style: { fontWeight: 700 } },
-  { label: 'I', command: 'italic', style: { fontStyle: 'italic' } },
-  { label: 'U', command: 'underline', style: { textDecoration: 'underline' } },
-  { label: 'S', command: 'strikeThrough', style: { textDecoration: 'line-through' } },
+  { label: 'Bold', displayLabel: 'B', command: 'bold', title: 'Bold (Ctrl+B)' },
+  { label: 'Italic', displayLabel: 'I', command: 'italic', title: 'Italic (Ctrl+I)' },
+  { label: 'Underline', displayLabel: 'U', command: 'underline', title: 'Underline (Ctrl+U)' },
+  { label: 'Strikethrough', displayLabel: 'S', command: 'strikeThrough', title: 'Strikethrough' },
 ];
 
 function isActive(
@@ -39,6 +40,26 @@ function isActive(
   if (optionType === 'heading') return block.level === optionLevel;
   return true;
 }
+
+/** Shared toolbar button styles */
+const toolbarBtnBase: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 32,
+  minWidth: 32,
+  padding: '0 10px',
+  border: '1px solid transparent',
+  borderRadius: 4,
+  background: 'transparent',
+  color: '#4b5563',
+  fontWeight: 500,
+  fontSize: 13,
+  fontFamily: "'Inter', system-ui, sans-serif",
+  cursor: 'pointer',
+  transition: 'all 0.12s ease',
+  lineHeight: 1,
+};
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   focusedBlock,
@@ -60,113 +81,137 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     document.execCommand(command, false);
   }, []);
 
-  const buttonBase: React.CSSProperties = {
-    padding: '4px 10px',
-    border: '1px solid #ccc',
-    borderRadius: 4,
-    background: '#fff',
-    color: '#333',
-    fontWeight: 400,
-    cursor: 'pointer',
+  const getButtonStyle = (isDisabled: boolean, isActiveState: boolean): React.CSSProperties => {
+    if (isDisabled) {
+      return {
+        ...toolbarBtnBase,
+        opacity: 0.35,
+        cursor: 'default',
+      };
+    }
+    if (isActiveState) {
+      return {
+        ...toolbarBtnBase,
+        backgroundColor: '#e8f0fe',
+        color: '#1a73e8',
+        fontWeight: 600,
+      };
+    }
+    return toolbarBtnBase;
   };
 
-  const activeButton: React.CSSProperties = {
-    ...buttonBase,
-    borderColor: '#4a90d9',
-    background: '#e3f0ff',
-    color: '#2a6cb8',
-    fontWeight: 600,
+  const getInlineStyle = (command: string): React.CSSProperties => {
+    const base: React.CSSProperties = {};
+    switch (command) {
+      case 'bold': base.fontWeight = 700; break;
+      case 'italic': base.fontStyle = 'italic'; break;
+      case 'underline': base.textDecoration = 'underline'; break;
+      case 'strikeThrough': base.textDecoration = 'line-through'; break;
+    }
+    return base;
   };
 
-  const disabledButton: React.CSSProperties = {
-    ...buttonBase,
-    opacity: 0.5,
-    cursor: 'default',
+  const separator: React.CSSProperties = {
+    width: 1,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    margin: '0 6px',
+    flexShrink: 0,
   };
 
   return (
     <div
       style={{
-        padding: '4px 16px',
-        borderBottom: '1px solid #eee',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        padding: '6px 16px',
+        borderBottom: '1px solid #e5e7eb',
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
-        fontFamily: 'system-ui, sans-serif',
+        gap: 2,
+        fontFamily: "'Inter', system-ui, sans-serif",
         fontSize: 13,
-        background: '#fafafa',
-        flexWrap: 'wrap',
+        backgroundColor: '#ffffff',
+        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
       }}
     >
-      {/* Undo / Redo */}
+      {/* Undo / Redo group */}
       <button
         onClick={onUndo}
         disabled={!canUndo}
-        style={canUndo ? buttonBase : disabledButton}
+        style={getButtonStyle(!canUndo, false)}
         title="Undo (Ctrl+Z)"
         aria-label="Undo"
+        onMouseEnter={(e) => { if (canUndo) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         &#x21A9;
       </button>
       <button
         onClick={onRedo}
         disabled={!canRedo}
-        style={canRedo ? buttonBase : disabledButton}
+        style={getButtonStyle(!canRedo, false)}
         title="Redo (Ctrl+Shift+Z)"
         aria-label="Redo"
+        onMouseEnter={(e) => { if (canRedo) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
       >
         &#x21AA;
       </button>
 
       {/* Separator */}
-      <span style={{ width: 1, height: 20, background: '#ddd', margin: '0 4px' }} />
+      <span style={separator} />
 
       {/* Block type buttons */}
       {BLOCK_OPTIONS.map((opt) => {
         const active = focusedBlock ? isActive(focusedBlock, opt.type, opt.level) : false;
+        const disabled = !focusedBlock;
         return (
           <button
             key={opt.label}
             onClick={() => handleBlockClick(opt.type, opt.level)}
-            disabled={!focusedBlock}
-            style={
-              !focusedBlock
-                ? disabledButton
-                : active
-                  ? activeButton
-                  : buttonBase
-            }
+            disabled={disabled}
+            style={getButtonStyle(disabled, active)}
+            title={opt.label}
+            onMouseEnter={(e) => { if (!disabled && !active) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+            onMouseLeave={(e) => { if (!disabled && !active) { e.currentTarget.style.backgroundColor = 'transparent'; } }}
           >
-            {opt.label}
+            {opt.shortLabel}
           </button>
         );
       })}
 
       {/* Separator */}
-      <span style={{ width: 1, height: 20, background: '#ddd', margin: '0 4px' }} />
+      <span style={separator} />
 
       {/* Inline formatting buttons */}
-      {INLINE_FORMAT_OPTIONS.map((opt) => (
-        <button
-          key={opt.command}
-          onClick={() => handleInlineFormat(opt.command)}
-          disabled={!focusedBlock}
-          style={{
-            ...(focusedBlock ? buttonBase : disabledButton),
-            ...opt.style,
-            minWidth: 30,
-            textAlign: 'center' as const,
-          }}
-          title={`${opt.label} (Ctrl+${opt.label})`}
-          aria-label={opt.command}
-        >
-          {opt.label}
-        </button>
-      ))}
+      {INLINE_FORMAT_OPTIONS.map((opt) => {
+        const disabled = !focusedBlock;
+        return (
+          <button
+            key={opt.command}
+            onClick={() => handleInlineFormat(opt.command)}
+            disabled={disabled}
+            style={{
+              ...getButtonStyle(disabled, false),
+              ...getInlineStyle(opt.command),
+              minWidth: 32,
+              padding: '0 6px',
+            }}
+            title={opt.title}
+            aria-label={opt.label}
+            onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.backgroundColor = '#f3f4f6'; } }}
+            onMouseLeave={(e) => { if (!disabled) { e.currentTarget.style.backgroundColor = 'transparent'; } }}
+          >
+            {opt.displayLabel}
+          </button>
+        );
+      })}
 
       {focusedBlock && (
-        <span style={{ marginLeft: 12, color: '#999', fontSize: 12 }}>
-          Block: {focusedBlock.id}
+        <span style={{ marginLeft: 'auto', color: '#9ca3af', fontSize: 11, fontFamily: "'Inter', system-ui, sans-serif" }}>
+          {focusedBlock.type === 'heading' ? `Heading ${focusedBlock.level ?? 1}` : 'Paragraph'}
         </span>
       )}
     </div>

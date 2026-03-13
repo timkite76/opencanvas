@@ -10,6 +10,67 @@ import { useCollaboration } from './hooks/useCollaboration.js';
 
 const MAX_UNDO_STACK = 50;
 
+/** Shared button base style */
+const toolbarBtnBase: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: 12,
+  fontFamily: 'inherit',
+  border: '1px solid transparent',
+  borderRadius: 4,
+  background: 'transparent',
+  color: '#3c4043',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  height: 28,
+  transition: 'background 0.15s, border-color 0.15s',
+  whiteSpace: 'nowrap' as const,
+};
+
+const toolbarBtnHoverBg = '#e8eaed';
+
+const ToolbarButton: React.FC<{
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+  active?: boolean;
+}> = ({ onClick, disabled, title, children, active }) => {
+  const [hovered, setHovered] = useState(false);
+  const isDisabled = disabled ?? false;
+
+  const style: React.CSSProperties = {
+    ...toolbarBtnBase,
+    background: active
+      ? '#c2e7ff'
+      : hovered && !isDisabled
+        ? toolbarBtnHoverBg
+        : 'transparent',
+    color: isDisabled ? '#bdc1c6' : active ? '#001d35' : '#3c4043',
+    cursor: isDisabled ? 'default' : 'pointer',
+    border: active ? '1px solid #c2e7ff' : '1px solid transparent',
+    opacity: isDisabled ? 0.7 : 1,
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={isDisabled}
+      title={title}
+      style={style}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {children}
+    </button>
+  );
+};
+
+const ToolbarSep: React.FC = () => (
+  <div style={{ width: 1, height: 20, background: '#dadce0', margin: '0 4px' }} />
+);
+
 export const App: React.FC = () => {
   const service = useMemo(() => createWorkbookService(), []);
   const [artifact, setArtifact] = useState<ArtifactEnvelope<GridNode> | null>(null);
@@ -149,67 +210,131 @@ export const App: React.FC = () => {
   }, [artifact]);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar */}
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      {/* Title bar */}
       <div
         style={{
-          padding: '8px 16px',
-          borderBottom: '1px solid #ddd',
+          padding: '6px 12px',
           display: 'flex',
           alignItems: 'center',
           gap: 12,
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
           fontSize: 14,
+          background: '#f9fbfd',
+          borderBottom: '1px solid #e8eaed',
+          minHeight: 28,
         }}
       >
-        <strong>OpenCanvas Grid</strong>
-        <button onClick={handleOpen} style={{ padding: '4px 12px' }}>
+        {/* App icon + name */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 2,
+              background: '#0f9d58',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            OC
+          </div>
+          <span style={{ fontWeight: 500, color: '#202124', fontSize: 15 }}>
+            OpenCanvas Grid
+          </span>
+        </div>
+
+        {isDirty && (
+          <span style={{ color: '#e37400', fontSize: 11, fontWeight: 500, marginLeft: 4 }}>
+            Unsaved
+          </span>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {statusMessage && (
+          <span
+            style={{
+              color: '#5f6368',
+              fontSize: 11,
+              maxWidth: 400,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {statusMessage}
+          </span>
+        )}
+      </div>
+
+      {/* Toolbar */}
+      <div
+        style={{
+          padding: '2px 8px',
+          borderBottom: '1px solid #dadce0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          fontSize: 12,
+          background: '#f9fbfd',
+          minHeight: 36,
+          flexWrap: 'wrap',
+        }}
+      >
+        <ToolbarButton onClick={handleOpen} title="Open sample workbook">
           Open Sample
-        </button>
-        <button onClick={handleSave} disabled={!artifact} style={{ padding: '4px 12px' }}>
+        </ToolbarButton>
+        <ToolbarButton onClick={handleSave} disabled={!artifact} title="Save (Ctrl+S)">
           Save
-        </button>
-        <button onClick={handleImportXlsx} style={{ padding: '4px 12px' }}>
+        </ToolbarButton>
+
+        <ToolbarSep />
+
+        <ToolbarButton onClick={handleImportXlsx} title="Import an .xlsx file">
           Import .xlsx
-        </button>
-        <button onClick={handleExportXlsx} disabled={!artifact} style={{ padding: '4px 12px' }}>
+        </ToolbarButton>
+        <ToolbarButton onClick={handleExportXlsx} disabled={!artifact} title="Export as .xlsx">
           Export .xlsx
-        </button>
+        </ToolbarButton>
 
-        {/* Separator */}
-        <span style={{ color: '#ddd' }}>|</span>
+        <ToolbarSep />
 
-        {/* Undo/Redo buttons */}
-        <button
+        {/* Undo with arrow icon */}
+        <ToolbarButton
           onClick={handleUndo}
           disabled={!artifact || undoCount === 0}
-          style={{ padding: '4px 12px' }}
           title="Undo (Ctrl+Z)"
         >
+          <span style={{ fontSize: 16, lineHeight: '16px', fontFamily: 'inherit' }}>{'\u21A9'}</span>
           Undo
-        </button>
-        <button
+        </ToolbarButton>
+
+        {/* Redo with arrow icon */}
+        <ToolbarButton
           onClick={handleRedo}
           disabled={!artifact || redoCount === 0}
-          style={{ padding: '4px 12px' }}
           title="Redo (Ctrl+Shift+Z)"
         >
+          <span style={{ fontSize: 16, lineHeight: '16px', fontFamily: 'inherit' }}>{'\u21AA'}</span>
           Redo
-        </button>
+        </ToolbarButton>
 
-        <button
+        <ToolbarSep />
+
+        <ToolbarButton
           onClick={() => setCollabEnabled((v) => !v)}
-          style={{
-            padding: '4px 12px',
-            backgroundColor: collabEnabled ? '#4caf50' : undefined,
-            color: collabEnabled ? '#fff' : undefined,
-            border: collabEnabled ? '1px solid #388e3c' : undefined,
-          }}
+          active={collabEnabled}
+          title={collabEnabled ? 'Collaboration enabled' : 'Enable collaboration'}
         >
+          <span style={{ fontSize: 14 }}>{'\u{1F465}'}</span>
           {collabEnabled ? 'Collaborating' : 'Collaborate'}
-        </button>
-        {isDirty && <span style={{ color: '#e67e22' }}>Unsaved changes</span>}
-        {statusMessage && <span style={{ color: '#888' }}>{statusMessage}</span>}
+        </ToolbarButton>
       </div>
 
       {collabEnabled && (
@@ -237,11 +362,35 @@ export const App: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#888',
-            fontFamily: 'system-ui, sans-serif',
+            flexDirection: 'column',
+            gap: 16,
+            color: '#5f6368',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            background: '#f8f9fa',
           }}
         >
-          Click "Open Sample" to load a workbook
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 8,
+              background: '#e8f5e9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#0f9d58',
+              fontSize: 28,
+              fontWeight: 700,
+            }}
+          >
+            OC
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 500, color: '#202124' }}>
+            OpenCanvas Grid
+          </div>
+          <div style={{ fontSize: 13, color: '#5f6368' }}>
+            Click &quot;Open Sample&quot; to load a workbook, or import an .xlsx file
+          </div>
         </div>
       )}
     </div>

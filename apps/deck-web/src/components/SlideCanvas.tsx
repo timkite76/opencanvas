@@ -39,7 +39,7 @@ interface ResizeState {
   startHeight: number;
 }
 
-const HANDLE_SIZE = 8;
+const HANDLE_SIZE = 10;
 const HALF_HANDLE = HANDLE_SIZE / 2;
 
 const HANDLE_CURSORS: Record<ResizeHandle, string> = {
@@ -66,6 +66,18 @@ function getHandlePositions(x: number, y: number, w: number, h: number): Record<
   };
 }
 
+// Generate grid dot pattern as a data URL for the canvas background
+function createGridDotsBackground(): string {
+  const spacing = 20;
+  const dotRadius = 0.8;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${spacing}" height="${spacing}">
+    <circle cx="${spacing / 2}" cy="${spacing / 2}" r="${dotRadius}" fill="rgba(0,0,0,0.12)"/>
+  </svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+const GRID_DOTS_BG = createGridDotsBackground();
+
 export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   slide,
   objectIds,
@@ -78,6 +90,7 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
   onDuplicateObject,
 }) => {
   const [editingObjectId, setEditingObjectId] = useState<string | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -366,7 +379,16 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
 
   if (!slide) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#9e9e9e',
+        fontSize: 15,
+        fontFamily: 'system-ui, sans-serif',
+        background: '#f0f0f0',
+      }}>
         No slide selected
       </div>
     );
@@ -379,8 +401,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#e0e0e0',
-        padding: 24,
+        background: '#e8eaed',
+        padding: 32,
         overflow: 'auto',
       }}
     >
@@ -397,7 +419,9 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           height: SLIDE_HEIGHT,
           maxWidth: '100%',
           background: slide.backgroundColor ?? '#ffffff',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          backgroundImage: GRID_DOTS_BG,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.08)',
+          borderRadius: 2,
           position: 'relative',
           aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}`,
           outline: 'none',
@@ -413,6 +437,7 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
           const h = (node.height as number) ?? 50;
           const isSelected = objId === selectedObjectId;
           const isEditing = objId === editingObjectId;
+          const isHovered = objId === hoveredObjectId && !isSelected;
 
           const content = node.content as Array<{ text: string; bold?: boolean; fontSize?: number }> | undefined;
           const text = content?.map((r) => r.text).join('') ?? '';
@@ -426,22 +451,38 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 onClick={(e) => handleObjectClick(e, objId)}
                 onDoubleClick={(e) => handleObjectDoubleClick(e, objId)}
                 onMouseDown={(e) => handleMouseDown(e, objId)}
+                onMouseEnter={() => setHoveredObjectId(objId)}
+                onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
                   position: 'absolute',
                   left: x,
                   top: y,
                   width: w,
                   height: h,
-                  border: isSelected ? '2px solid #1a73e8' : '1px solid transparent',
+                  border: isSelected
+                    ? '2px dashed #1a73e8'
+                    : isHovered
+                      ? '1px solid rgba(26, 115, 232, 0.4)'
+                      : '1px solid transparent',
                   cursor: isEditing ? 'text' : 'move',
                   boxSizing: 'border-box',
-                  padding: 4,
+                  padding: isEditing ? 6 : 4,
                   fontSize,
                   fontWeight: isBold ? 700 : 400,
                   lineHeight: 1.3,
                   overflow: 'hidden',
                   outline: 'none',
-                  background: isSelected ? 'rgba(26, 115, 232, 0.04)' : 'transparent',
+                  background: isEditing
+                    ? 'rgba(255, 255, 255, 0.95)'
+                    : isSelected
+                      ? 'rgba(26, 115, 232, 0.03)'
+                      : isHovered
+                        ? 'rgba(26, 115, 232, 0.02)'
+                        : 'transparent',
+                  borderRadius: isEditing ? 2 : 0,
+                  boxShadow: isEditing ? '0 0 0 2px #1a73e8, inset 0 0 0 1px rgba(26, 115, 232, 0.1)' : 'none',
+                  caretColor: '#1a73e8',
+                  transition: 'background 0.15s ease, border-color 0.15s ease',
                 }}
                 contentEditable={isEditing}
                 suppressContentEditableWarning
@@ -470,6 +511,8 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 key={objId}
                 onClick={(e) => handleObjectClick(e, objId)}
                 onMouseDown={(e) => handleMouseDown(e, objId)}
+                onMouseEnter={() => setHoveredObjectId(objId)}
+                onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
                   position: 'absolute',
                   left: x,
@@ -479,12 +522,15 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                   background: (node.fill as string) ?? '#ddd',
                   borderRadius: shapeType === 'ellipse' ? '50%' : shapeType === 'rounded_rect' ? 8 : 0,
                   border: isSelected
-                    ? '2px solid #1a73e8'
-                    : node.stroke
-                      ? `1px solid ${node.stroke}`
-                      : '1px solid transparent',
+                    ? '2px dashed #1a73e8'
+                    : isHovered
+                      ? `2px solid rgba(26, 115, 232, 0.4)`
+                      : node.stroke
+                        ? `1px solid ${node.stroke}`
+                        : '1px solid transparent',
                   cursor: 'move',
                   boxSizing: 'border-box',
+                  transition: 'border-color 0.15s ease',
                 }}
               />
             );
@@ -496,21 +542,28 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 key={objId}
                 onClick={(e) => handleObjectClick(e, objId)}
                 onMouseDown={(e) => handleMouseDown(e, objId)}
+                onMouseEnter={() => setHoveredObjectId(objId)}
+                onMouseLeave={() => setHoveredObjectId(null)}
                 style={{
                   position: 'absolute',
                   left: x,
                   top: y,
                   width: w,
                   height: h,
-                  background: '#f0f0f0',
-                  border: isSelected ? '2px solid #1a73e8' : '1px solid #ccc',
+                  background: '#f5f5f5',
+                  border: isSelected
+                    ? '2px dashed #1a73e8'
+                    : isHovered
+                      ? '2px solid rgba(26, 115, 232, 0.4)'
+                      : '1px solid #e0e0e0',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 12,
-                  color: '#888',
+                  color: '#9e9e9e',
                   cursor: 'move',
                   boxSizing: 'border-box',
+                  transition: 'border-color 0.15s ease',
                 }}
               >
                 {(node.alt as string) ?? 'Image'}
@@ -542,11 +595,13 @@ export const SlideCanvas: React.FC<SlideCanvasProps> = ({
                 top: pos.top,
                 width: HANDLE_SIZE,
                 height: HANDLE_SIZE,
-                background: '#1a73e8',
-                border: '1px solid #fff',
+                background: '#ffffff',
+                border: '2px solid #1a73e8',
+                borderRadius: '50%',
                 cursor: HANDLE_CURSORS[handle],
                 zIndex: 10,
                 boxSizing: 'border-box',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
               }}
             />
           ));
