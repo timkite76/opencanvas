@@ -1576,143 +1576,79 @@ export const App: React.FC = () => {
           borderBottom: '1px solid #e2e5e9',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
           fontSize: 13,
           backgroundColor: '#ffffff',
           flexShrink: 0,
         }}
       >
-        {/* Left: branding + doc title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <div style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            background: '#3b82f6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontSize: 13,
-            fontWeight: 700,
-            flexShrink: 0,
-          }}>
+        {/* App icon + name */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
+          <div style={{ width: 24, height: 24, borderRadius: 6, background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
             W
           </div>
-          <span style={{
-            fontWeight: 700,
-            fontSize: 15,
-            color: '#111827',
-            letterSpacing: '-0.01em',
-            whiteSpace: 'nowrap',
-          }}>
-            Write
-          </span>
-          {isLoaded && (
-            <span style={{
-              color: '#6b7280',
-              fontSize: 13,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}>
-              Sample Document
-            </span>
-          )}
+          <span style={{ fontWeight: 600, color: '#111827', fontSize: 15, whiteSpace: 'nowrap' }}>Write</span>
         </div>
 
-        {/* Center: status */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
+
+        <button onClick={handleOpen} style={topBtnBase} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}>
+          New
+        </button>
+        <button onClick={handleSave} disabled={!isLoaded} style={isLoaded ? topBtnBase : topBtnDisabled} onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }} onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}>
+          Save
+        </button>
+
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
+
+        <button onClick={handleImportDocx} style={topBtnBase} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}>
+          Import
+        </button>
+        <button onClick={handleExportDocx} disabled={!isLoaded} style={isLoaded ? topBtnBase : topBtnDisabled} onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }} onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}>
+          Export
+        </button>
+
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
+
+        <button
+          onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
+          style={showActionLog ? { ...topBtnBase, backgroundColor: '#ede9fe', color: '#7c3aed', borderColor: '#c4b5fd' } : topBtnBase}
+          onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+        >
+          AI Log
+        </button>
+        <button
+          onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
+          style={showFunctionBrowser ? { ...topBtnBase, backgroundColor: '#dbeafe', color: '#2563eb', borderColor: '#93c5fd' } : topBtnBase}
+          onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+        >
+          Functions
+        </button>
+
+        <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
+
+        <button
+          onClick={() => setCollabEnabled((v) => !v)}
+          style={collabBtnStyle}
+          onMouseEnter={(e) => { if (!collabEnabled) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!collabEnabled) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+        >
+          {collabEnabled ? 'Collaborating' : 'Collaborate'}
+        </button>
+
+        {/* Status area - right */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {isDirty && (
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              color: '#d97706',
-              fontSize: 12,
-              fontWeight: 500,
-            }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#d97706', fontSize: 12, fontWeight: 500 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#d97706', display: 'inline-block' }} />
               Unsaved
             </span>
           )}
           {statusMessage && (
-            <span style={{ color: '#9ca3af', fontSize: 12 }}>{statusMessage}</span>
+            <span style={{ color: '#9ca3af', fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusMessage}</span>
           )}
-        </div>
-
-        {/* Right: action buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button
-            onClick={handleOpen}
-            style={topBtnBase}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            New
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!isLoaded}
-            style={isLoaded ? topBtnBase : topBtnDisabled}
-            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            Save
-          </button>
-          <button
-            onClick={handleImportDocx}
-            style={topBtnBase}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            Import
-          </button>
-          <button
-            onClick={handleExportDocx}
-            disabled={!isLoaded}
-            style={isLoaded ? topBtnBase : topBtnDisabled}
-            onMouseEnter={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { if (isLoaded) e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            Export
-          </button>
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
-
-          <button
-            onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
-            style={showActionLog ? { ...topBtnBase, backgroundColor: '#ede9fe', color: '#7c3aed', borderColor: '#c4b5fd' } : topBtnBase}
-            onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            AI Log
-          </button>
-          <button
-            onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
-            style={showFunctionBrowser ? { ...topBtnBase, backgroundColor: '#dbeafe', color: '#2563eb', borderColor: '#93c5fd' } : topBtnBase}
-            onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.backgroundColor = '#ffffff'; }}
-          >
-            Functions
-          </button>
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 20, background: '#e2e5e9', flexShrink: 0 }} />
-
-          <button
-            onClick={() => setCollabEnabled((v) => !v)}
-            style={collabBtnStyle}
-            onMouseEnter={(e) => {
-              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#f3f4f6';
-            }}
-            onMouseLeave={(e) => {
-              if (!collabEnabled) e.currentTarget.style.backgroundColor = '#ffffff';
-            }}
-          >
-            {collabEnabled ? 'Collaborating' : 'Collaborate'}
-          </button>
         </div>
       </div>
 

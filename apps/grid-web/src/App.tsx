@@ -16,21 +16,20 @@ const MAX_UNDO_STACK = 50;
 const toolbarBtnBase: React.CSSProperties = {
   padding: '5px 12px',
   fontSize: 13,
+  fontWeight: 500,
   fontFamily: 'inherit',
-  border: '1px solid transparent',
+  border: '1px solid #d1d5db',
   borderRadius: 6,
-  background: 'transparent',
+  background: '#ffffff',
   color: '#374151',
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
-  height: 30,
   transition: 'background 0.15s, border-color 0.15s',
   whiteSpace: 'nowrap' as const,
+  lineHeight: '20px',
 };
-
-const toolbarBtnHoverBg = '#f3f4f6';
 
 const ToolbarButton: React.FC<{
   onClick: () => void;
@@ -45,14 +44,14 @@ const ToolbarButton: React.FC<{
   const style: React.CSSProperties = {
     ...toolbarBtnBase,
     background: active
-      ? '#dcfce7'
+      ? '#ede9fe'
       : hovered && !isDisabled
-        ? toolbarBtnHoverBg
-        : 'transparent',
-    color: isDisabled ? '#bdc1c6' : active ? '#166534' : '#374151',
+        ? '#f3f4f6'
+        : '#ffffff',
+    color: isDisabled ? '#9ca3af' : active ? '#7c3aed' : '#374151',
     cursor: isDisabled ? 'default' : 'pointer',
-    border: active ? '1px solid #bbf7d0' : '1px solid transparent',
-    opacity: isDisabled ? 0.7 : 1,
+    borderColor: active ? '#c4b5fd' : '#d1d5db',
+    opacity: isDisabled ? 0.4 : 1,
   };
 
   return (
@@ -215,145 +214,84 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', fontFamily: '"Inter", system-ui, -apple-system, sans-serif' }}>
-      {/* Title bar */}
+      {/* Top bar */}
       <div
         style={{
           padding: '8px 16px',
+          borderBottom: '1px solid #e2e5e9',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+          gap: 6,
           fontSize: 13,
           background: '#ffffff',
-          borderBottom: '1px solid #e2e5e9',
+          flexShrink: 0,
         }}
       >
         {/* App icon + name */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              background: '#16a34a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
+          <div style={{ width: 24, height: 24, borderRadius: 6, background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
             G
           </div>
-          <span style={{ fontWeight: 500, color: '#202124', fontSize: 15 }}>
-            Grid
-          </span>
+          <span style={{ fontWeight: 600, color: '#111827', fontSize: 15, whiteSpace: 'nowrap' }}>Grid</span>
         </div>
 
-        {isDirty && (
-          <span style={{ color: '#d97706', fontSize: 11, fontWeight: 500, marginLeft: 4 }}>
-            Unsaved
-          </span>
-        )}
+        <ToolbarSep />
 
-        <div style={{ flex: 1 }} />
-
-        {statusMessage && (
-          <span
-            style={{
-              color: '#9ca3af',
-              fontSize: 11,
-              maxWidth: 400,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {statusMessage}
-          </span>
-        )}
-      </div>
-
-      {/* Toolbar */}
-      <div
-        style={{
-          padding: '4px 16px',
-          borderBottom: '1px solid #e2e5e9',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
-          fontSize: 13,
-          background: '#ffffff',
-          flexWrap: 'wrap' as const,
-        }}
-      >
-        <ToolbarButton onClick={handleOpen} title="New workbook">
-          New
-        </ToolbarButton>
-        <ToolbarButton onClick={handleSave} disabled={!artifact} title="Save (Ctrl+S)">
-          Save
-        </ToolbarButton>
+        <ToolbarButton onClick={handleOpen} title="New workbook">New</ToolbarButton>
+        <ToolbarButton onClick={handleSave} disabled={!artifact} title="Save (Ctrl+S)">Save</ToolbarButton>
 
         <ToolbarSep />
 
-        <ToolbarButton onClick={handleImportXlsx} title="Import an .xlsx file">
-          Import .xlsx
-        </ToolbarButton>
-        <ToolbarButton onClick={handleExportXlsx} disabled={!artifact} title="Export as .xlsx">
-          Export .xlsx
-        </ToolbarButton>
+        <ToolbarButton onClick={handleImportXlsx} title="Import an .xlsx file">Import</ToolbarButton>
+        <ToolbarButton onClick={handleExportXlsx} disabled={!artifact} title="Export as .xlsx">Export</ToolbarButton>
 
         <ToolbarSep />
 
-        {/* Undo with arrow icon */}
-        <ToolbarButton
-          onClick={handleUndo}
-          disabled={!artifact || undoCount === 0}
-          title="Undo (Ctrl+Z)"
-        >
-          <span style={{ fontSize: 16, lineHeight: '16px', fontFamily: 'inherit' }}>{'\u21A9'}</span>
-          Undo
-        </ToolbarButton>
-
-        {/* Redo with arrow icon */}
-        <ToolbarButton
-          onClick={handleRedo}
-          disabled={!artifact || redoCount === 0}
-          title="Redo (Ctrl+Shift+Z)"
-        >
-          <span style={{ fontSize: 16, lineHeight: '16px', fontFamily: 'inherit' }}>{'\u21AA'}</span>
-          Redo
-        </ToolbarButton>
+        <ToolbarButton onClick={handleUndo} disabled={!artifact || undoCount === 0} title="Undo (Ctrl+Z)">Undo</ToolbarButton>
+        <ToolbarButton onClick={handleRedo} disabled={!artifact || redoCount === 0} title="Redo (Ctrl+Shift+Z)">Redo</ToolbarButton>
 
         <ToolbarSep />
 
-        <ToolbarButton
+        <button
           onClick={() => { setShowActionLog((v) => !v); setShowFunctionBrowser(false); }}
-          active={showActionLog}
-          title="View AI action log"
+          style={showActionLog ? { ...toolbarBtnBase, background: '#ede9fe', color: '#7c3aed', borderColor: '#c4b5fd' } : toolbarBtnBase}
+          onMouseEnter={(e) => { if (!showActionLog) e.currentTarget.style.background = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!showActionLog) e.currentTarget.style.background = '#ffffff'; }}
         >
           AI Log
-        </ToolbarButton>
-        <ToolbarButton
+        </button>
+        <button
           onClick={() => { setShowFunctionBrowser((v) => !v); setShowActionLog(false); }}
-          active={showFunctionBrowser}
-          title="Browse AI functions"
+          style={showFunctionBrowser ? { ...toolbarBtnBase, background: '#dbeafe', color: '#2563eb', borderColor: '#93c5fd' } : toolbarBtnBase}
+          onMouseEnter={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!showFunctionBrowser) e.currentTarget.style.background = '#ffffff'; }}
         >
           Functions
-        </ToolbarButton>
+        </button>
 
         <ToolbarSep />
 
-        <ToolbarButton
+        <button
           onClick={() => setCollabEnabled((v) => !v)}
-          active={collabEnabled}
-          title={collabEnabled ? 'Collaboration enabled' : 'Enable collaboration'}
+          style={collabEnabled ? { ...toolbarBtnBase, background: '#d1fae5', color: '#059669', borderColor: '#6ee7b7' } : toolbarBtnBase}
+          onMouseEnter={(e) => { if (!collabEnabled) e.currentTarget.style.background = '#f3f4f6'; }}
+          onMouseLeave={(e) => { if (!collabEnabled) e.currentTarget.style.background = '#ffffff'; }}
         >
-          <span style={{ fontSize: 14 }}>{'\u{1F465}'}</span>
           {collabEnabled ? 'Collaborating' : 'Collaborate'}
-        </ToolbarButton>
+        </button>
+
+        {/* Status area - right */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isDirty && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#d97706', fontSize: 12, fontWeight: 500 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#d97706', display: 'inline-block' }} />
+              Unsaved
+            </span>
+          )}
+          {statusMessage && (
+            <span style={{ color: '#9ca3af', fontSize: 12, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusMessage}</span>
+          )}
+        </div>
       </div>
 
       {collabEnabled && (
