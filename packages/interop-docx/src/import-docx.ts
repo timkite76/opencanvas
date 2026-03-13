@@ -170,10 +170,70 @@ export async function importDocx(
     (listNode as unknown as Record<string, unknown>)['childIds'] = [...currentListItemIds];
   }
 
-  // Also check for tables in body
+  // Process tables in body
   const tables = ensureArray(body['w:tbl']);
-  if (tables.length > 0) {
-    addReportEntry(report, 'unsupported', 'tables');
+  for (const tbl of tables) {
+    const table = tbl as Record<string, unknown>;
+    const tableId = uuidv4();
+
+    const rows = ensureArray(table['w:tr']);
+    const rowIds: string[] = [];
+    let columnCount = 0;
+
+    for (const tr of rows) {
+      const row = tr as Record<string, unknown>;
+      const rowId = uuidv4();
+      const cells = ensureArray(row['w:tc']);
+      const cellIds: string[] = [];
+
+      if (cells.length > columnCount) {
+        columnCount = cells.length;
+      }
+
+      for (const tc of cells) {
+        const cell = tc as Record<string, unknown>;
+        const cellId = uuidv4();
+
+        // Cells contain paragraphs; extract text runs from all paragraphs within
+        const cellParagraphs = ensureArray(cell['w:p']);
+        const cellContent: TextRun[] = [];
+        for (const cp of cellParagraphs) {
+          const cellPara = cp as Record<string, unknown>;
+          const runs = extractTextRuns(cellPara, ctx);
+          cellContent.push(...runs);
+        }
+
+        const cellNode: WriteNode = {
+          id: cellId,
+          type: 'table_cell',
+          content: cellContent,
+          parentId: rowId,
+        };
+        ctx.nodes[cellId] = cellNode;
+        cellIds.push(cellId);
+      }
+
+      const rowNode: WriteNode = {
+        id: rowId,
+        type: 'table_row',
+        parentId: tableId,
+        childIds: cellIds,
+      };
+      ctx.nodes[rowId] = rowNode;
+      rowIds.push(rowId);
+    }
+
+    const tableNode: WriteNode = {
+      id: tableId,
+      type: 'table',
+      columns: columnCount,
+      rows: rows.length,
+      parentId: sectionId,
+      childIds: rowIds,
+    };
+    ctx.nodes[tableId] = tableNode;
+    childIds.push(tableId);
+    addReportEntry(report, 'preserved', 'tables');
   }
 
   // Check for other unsupported top-level elements

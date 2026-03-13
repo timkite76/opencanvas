@@ -34,9 +34,19 @@ export async function exportDocx(
     throw new Error('Root node not found in artifact');
   }
 
-  // Collect body paragraphs by walking the tree
-  const bodyElements: unknown[] = [];
-  walkNode(rootNode, nodes, bodyElements, report);
+  // Collect body elements by walking the tree
+  const bodyParagraphs: unknown[] = [];
+  const bodyTables: unknown[] = [];
+  walkNode(rootNode, nodes, bodyParagraphs, bodyTables, report);
+
+  // Build body content with both paragraphs and tables
+  const bodyContent: Record<string, unknown> = {};
+  if (bodyParagraphs.length > 0) {
+    bodyContent['w:p'] = bodyParagraphs;
+  }
+  if (bodyTables.length > 0) {
+    bodyContent['w:tbl'] = bodyTables;
+  }
 
   // Build document.xml
   const documentXml = buildXml({
@@ -44,9 +54,7 @@ export async function exportDocx(
       '@_xmlns:w': W_NS,
       '@_xmlns:r': R_NS,
       '@_xmlns:wp': WP_NS,
-      'w:body': {
-        'w:p': bodyElements,
-      },
+      'w:body': bodyContent,
     },
   });
 
@@ -91,7 +99,8 @@ export async function exportDocx(
 function walkNode(
   node: WriteNode,
   nodes: Record<string, WriteNode>,
-  bodyElements: unknown[],
+  bodyParagraphs: unknown[],
+  bodyTables: unknown[],
   report: CompatibilityReport,
 ): void {
   switch (node.type) {
@@ -102,7 +111,7 @@ function walkNode(
         for (const childId of node.childIds) {
           const child = nodes[childId];
           if (child) {
-            walkNode(child, nodes, bodyElements, report);
+            walkNode(child, nodes, bodyParagraphs, bodyTables, report);
           }
         }
       }
@@ -120,7 +129,7 @@ function walkNode(
         },
         'w:r': runs,
       };
-      bodyElements.push(para);
+      bodyParagraphs.push(para);
       addReportEntry(report, 'preserved', `heading level ${headingNode.level}`);
       break;
     }
@@ -131,7 +140,7 @@ function walkNode(
       const para: Record<string, unknown> = {
         'w:r': runs,
       };
-      bodyElements.push(para);
+      bodyParagraphs.push(para);
       addReportEntry(report, 'preserved', 'paragraphs');
       break;
     }
@@ -155,7 +164,7 @@ function walkNode(
               },
               'w:r': runs,
             };
-            bodyElements.push(para);
+            bodyParagraphs.push(para);
           }
         }
       }
@@ -165,7 +174,7 @@ function walkNode(
 
     case 'image': {
       // Images are unsupported for export; emit an empty paragraph as placeholder
-      bodyElements.push({
+      bodyParagraphs.push({
         'w:r': [
           {
             'w:t': { '#text': '[Image placeholder]', '@_xml:space': 'preserve' },
@@ -176,10 +185,17 @@ function walkNode(
       break;
     }
 
-    case 'table':
+    case 'table': {
+      const tableNode = node as WriteNode & { type: 'table'; columns: number; rows: number };
+      const tblElement = buildTable(tableNode, nodes, report);
+      bodyTables.push(tblElement);
+      addReportEntry(report, 'preserved', 'tables');
+      break;
+    }
+
     case 'table_row':
     case 'table_cell': {
-      addReportEntry(report, 'unsupported', 'tables');
+      // These are handled within buildTable; skip if encountered at top level
       break;
     }
 
@@ -187,7 +203,7 @@ function walkNode(
       // Export semantic blocks as regular paragraphs
       const sbNode = node as WriteNode & { type: 'semantic_block'; content: TextRun[] };
       const runs = buildTextRuns(sbNode.content, report);
-      bodyElements.push({
+      bodyParagraphs.push({
         'w:r': runs,
       });
       addReportEntry(report, 'approximated', 'semantic blocks (exported as paragraphs)');
@@ -200,6 +216,82 @@ function walkNode(
       break;
     }
   }
+}
+
+function buildTable(
+  tableNode: WriteNode & { type: 'table'; columns: number; rows: number },
+  nodes: Record<string, WriteNode>,
+  report: CompatibilityReport,
+): Record<string, unknown> {
+  // Build table grid: equal column widths (total width ~9360 twips for US Letter)
+  const totalWidth = 9360;
+  const colWidth = Math.floor(totalWidth / (tableNode.columns || 1));
+  const gridCols: unknown[] = [];
+  for (let i = 0; i < (tableNode.columns || 1); i++) {
+    gridCols.push({ '@_w:w': String(colWidth), '@_w:type': 'dxa' });
+  }
+
+  // Build table borders (basic single-line borders)
+  const borderDef = { '@_w:val': 'single', '@_w:sz': '4', '@_w:space': '0', '@_w:color': 'auto' };
+  const tblBorders: Record<string, unknown> = {
+    'w:top': { ...borderDef },
+    'w:left': { ...borderDef },
+    'w:bottom': { ...borderDef },
+    'w:right': { ...borderDef },
+    'w:insideH': { ...borderDef },
+    'w:insideV': { ...borderDef },
+  };
+
+  // Build rows
+  const rows: unknown[] = [];
+  if (tableNode.childIds) {
+    for (const rowId of tableNode.childIds) {
+      const rowNode = nodes[rowId];
+      if (rowNode && rowNode.type === 'table_row') {
+        const cells: unknown[] = [];
+        if (rowNode.childIds) {
+          for (const cellId of rowNode.childIds) {
+            const cellNode = nodes[cellId];
+            if (cellNode && cellNode.type === 'table_cell') {
+              const cell = cellNode as WriteNode & { type: 'table_cell'; content: TextRun[] };
+              const runs = buildTextRuns(cell.content, report);
+              const tcElement: Record<string, unknown> = {
+                'w:tcPr': {
+                  'w:tcW': { '@_w:w': String(colWidth), '@_w:type': 'dxa' },
+                },
+                'w:p': {
+                  'w:r': runs,
+                },
+              };
+              cells.push(tcElement);
+            }
+          }
+        }
+        rows.push({ 'w:tc': cells });
+      }
+    }
+  }
+
+  return {
+    'w:tblPr': {
+      'w:tblStyle': { '@_w:val': 'TableGrid' },
+      'w:tblW': { '@_w:w': '0', '@_w:type': 'auto' },
+      'w:tblBorders': tblBorders,
+      'w:tblLook': {
+        '@_w:val': '04A0',
+        '@_w:firstRow': '1',
+        '@_w:lastRow': '0',
+        '@_w:firstColumn': '1',
+        '@_w:lastColumn': '0',
+        '@_w:noHBand': '0',
+        '@_w:noVBand': '1',
+      },
+    },
+    'w:tblGrid': {
+      'w:gridCol': gridCols,
+    },
+    'w:tr': rows,
+  };
 }
 
 function buildTextRuns(

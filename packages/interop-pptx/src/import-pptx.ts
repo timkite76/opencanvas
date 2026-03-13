@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ArtifactEnvelope } from '@opencanvas/core-model';
-import type { DeckNode, TextRun } from '@opencanvas/deck-model';
+import type { AssetRef } from '@opencanvas/core-types';
+import type { DeckNode, TextRun, ImageObjectNode, SpeakerNotesNode } from '@opencanvas/deck-model';
 import {
   readZip,
   parseXml,
@@ -12,14 +13,43 @@ import {
 
 // EMU (English Metric Unit) to pixel conversion
 // 1 inch = 914400 EMU, 1 inch = 96 pixels => 1 EMU = 96/914400 = 1/9525 pixels
-// Common approximation: divide by 12700 for points-like conversion
 const EMU_TO_PX = 1 / 9525;
+
+/** Mime types by common PPTX image extensions */
+const EXT_TO_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+  '.svg': 'image/svg+xml',
+  '.emf': 'image/x-emf',
+  '.wmf': 'image/x-wmf',
+};
+
+function mimeFromPath(filePath: string): string {
+  const dot = filePath.lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  const ext = filePath.substring(dot).toLowerCase();
+  return EXT_TO_MIME[ext] ?? 'application/octet-stream';
+}
+
+export interface ImportPptxResult {
+  artifact: ArtifactEnvelope<DeckNode>;
+  report: CompatibilityReport;
+  /** Binary data for imported assets keyed by assetId */
+  assetData: Map<string, Uint8Array>;
+}
 
 export async function importPptx(
   data: Uint8Array,
-): Promise<{ artifact: ArtifactEnvelope<DeckNode>; report: CompatibilityReport }> {
+): Promise<ImportPptxResult> {
   const zipFiles = await readZip(data);
   const report = createCompatReport();
+  const assetData = new Map<string, Uint8Array>();
+  const assets: AssetRef[] = [];
 
   // Parse presentation.xml for slide list
   const presXml = zipFiles.get('ppt/presentation.xml');
@@ -75,7 +105,55 @@ export async function importPptx(
     const slideId = uuidv4();
     slideIds.push(slideId);
 
-    const childIds = parseSlide(slideXml, slideId, nodes, report);
+    // Parse slide relationships for images
+    const slideRelsPath = slidePath.replace(
+      /^(.*\/)?([^/]+)$/,
+      '$1_rels/$2.rels',
+    );
+    const slideRelsXml = zipFiles.get(slideRelsPath);
+    const slideRels = slideRelsXml && typeof slideRelsXml === 'string'
+      ? parseRelationships(slideRelsXml)
+      : [];
+
+    const slideRelMap = new Map<string, string>();
+    for (const rel of slideRels) {
+      slideRelMap.set(rel.id, rel.target);
+    }
+
+    // Parse slide content (text boxes and images)
+    const childIds = parseSlide(
+      slideXml,
+      slideId,
+      nodes,
+      report,
+      slideRelMap,
+      slidePath,
+      zipFiles,
+      assetData,
+      assets,
+    );
+
+    // Parse speaker notes for this slide
+    const notesTarget = findNotesTarget(slideRels);
+    if (notesTarget) {
+      const notesPath = resolveRelativePath(slidePath, notesTarget);
+      const notesXml = zipFiles.get(notesPath);
+      if (notesXml && typeof notesXml === 'string') {
+        const notesContent = parseNotesSlide(notesXml, report);
+        if (notesContent.length > 0) {
+          const notesId = uuidv4();
+          const notesNode: DeckNode = {
+            id: notesId,
+            type: 'speaker_notes',
+            content: notesContent,
+            parentId: slideId,
+          };
+          nodes[notesId] = notesNode;
+          childIds.push(notesId);
+          addReportEntry(report, 'preserved', 'speaker notes');
+        }
+      }
+    }
 
     const slideNode: DeckNode = {
       id: slideId,
@@ -106,12 +184,6 @@ export async function importPptx(
     if (path.includes('chart')) {
       addReportEntry(report, 'unsupported', 'charts');
     }
-    if (path.startsWith('ppt/media/')) {
-      addReportEntry(report, 'unsupported', 'embedded media (images/video/audio)');
-    }
-    if (path.includes('notesSlide')) {
-      addReportEntry(report, 'approximated', 'speaker notes (skipped)');
-    }
   }
 
   const now = new Date().toISOString();
@@ -124,9 +196,106 @@ export async function importPptx(
     updatedAt: now,
     rootNodeId: presentationId,
     nodes,
+    assets: assets.length > 0 ? assets : undefined,
   };
 
-  return { artifact, report };
+  return { artifact, report, assetData };
+}
+
+/**
+ * Find the notes slide target from a slide's relationships.
+ */
+function findNotesTarget(rels: { id: string; type: string; target: string }[]): string | undefined {
+  for (const rel of rels) {
+    if (
+      rel.type ===
+      'http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide'
+    ) {
+      return rel.target;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a relative target path against a base path (e.g. "../notesSlides/notesSlide1.xml"
+ * relative to "ppt/slides/slide1.xml" -> "ppt/notesSlides/notesSlide1.xml").
+ */
+function resolveRelativePath(basePath: string, target: string): string {
+  if (target.startsWith('/')) {
+    return target.substring(1);
+  }
+  // Get directory of basePath
+  const lastSlash = basePath.lastIndexOf('/');
+  let dir = lastSlash >= 0 ? basePath.substring(0, lastSlash + 1) : '';
+
+  let remaining = target;
+  while (remaining.startsWith('../')) {
+    remaining = remaining.substring(3);
+    // Go up one directory
+    const trimmed = dir.endsWith('/') ? dir.substring(0, dir.length - 1) : dir;
+    const parentSlash = trimmed.lastIndexOf('/');
+    dir = parentSlash >= 0 ? trimmed.substring(0, parentSlash + 1) : '';
+  }
+
+  return dir + remaining;
+}
+
+/**
+ * Parse a notesSlide XML and extract text content.
+ */
+function parseNotesSlide(
+  xml: string,
+  report: CompatibilityReport,
+): TextRun[] {
+  const parsed = parseXml(xml) as Record<string, unknown>;
+  const notes = parsed['p:notes'] as Record<string, unknown> | undefined;
+  if (!notes) return [];
+
+  const cSld = notes['p:cSld'] as Record<string, unknown> | undefined;
+  if (!cSld) return [];
+
+  const spTree = cSld['p:spTree'] as Record<string, unknown> | undefined;
+  if (!spTree) return [];
+
+  // Notes content is typically in a shape with type="body" or idx="1"
+  // We look through all shapes for text bodies
+  const shapes = ensureArray(spTree['p:sp']);
+  const allRuns: TextRun[] = [];
+
+  for (const sp of shapes) {
+    const shape = sp as Record<string, unknown>;
+
+    // Check if this is the notes body placeholder (type 12 = body, or ph idx 1)
+    const nvSpPr = shape['p:nvSpPr'] as Record<string, unknown> | undefined;
+    const nvPr = nvSpPr?.['p:nvPr'] as Record<string, unknown> | undefined;
+    const ph = nvPr?.['p:ph'] as Record<string, unknown> | undefined;
+
+    // Notes body placeholder has type="body" or idx="1"
+    const phType = ph?.['@_type'] as string | undefined;
+    const phIdx = ph?.['@_idx'] as string | undefined;
+
+    // Skip the slide image placeholder (type="sldImg")
+    if (phType === 'sldImg') continue;
+
+    // Prefer the body placeholder, but take any text we can find
+    const isBody = phType === 'body' || phIdx === '1';
+
+    const txBody = shape['p:txBody'] as Record<string, unknown> | undefined;
+    if (txBody && isBody) {
+      const runs = extractTextFromTxBody(txBody, report);
+      // Only add if there is actual text content
+      const hasText = runs.some((r) => r.text.trim().length > 0);
+      if (hasText) {
+        if (allRuns.length > 0) {
+          allRuns.push({ text: '\n' });
+        }
+        allRuns.push(...runs);
+      }
+    }
+  }
+
+  return allRuns;
 }
 
 function parseSlide(
@@ -134,6 +303,11 @@ function parseSlide(
   slideId: string,
   nodes: Record<string, DeckNode>,
   report: CompatibilityReport,
+  slideRelMap: Map<string, string>,
+  slidePath: string,
+  zipFiles: Map<string, string | Uint8Array>,
+  assetData: Map<string, Uint8Array>,
+  assets: AssetRef[],
 ): string[] {
   const parsed = parseXml(xml) as Record<string, unknown>;
   const slide = parsed['p:sld'] as Record<string, unknown> | undefined;
@@ -198,10 +372,24 @@ function parseSlide(
     }
   }
 
-  // Check for picture shapes
+  // Parse picture shapes (p:pic)
   const pics = ensureArray(spTree['p:pic']);
-  if (pics.length > 0) {
-    addReportEntry(report, 'unsupported', 'images on slides');
+  for (const pic of pics) {
+    const picObj = pic as Record<string, unknown>;
+    const imageNode = parsePicElement(
+      picObj,
+      slideId,
+      report,
+      slideRelMap,
+      slidePath,
+      zipFiles,
+      assetData,
+      assets,
+    );
+    if (imageNode) {
+      nodes[imageNode.id] = imageNode;
+      childIds.push(imageNode.id);
+    }
   }
 
   // Check for group shapes
@@ -217,6 +405,104 @@ function parseSlide(
   }
 
   return childIds;
+}
+
+/**
+ * Parse a p:pic element into an ImageObjectNode, extracting the referenced image.
+ */
+function parsePicElement(
+  picObj: Record<string, unknown>,
+  slideId: string,
+  report: CompatibilityReport,
+  slideRelMap: Map<string, string>,
+  slidePath: string,
+  zipFiles: Map<string, string | Uint8Array>,
+  assetData: Map<string, Uint8Array>,
+  assets: AssetRef[],
+): ImageObjectNode | null {
+  // Get position/size from spPr
+  const spPr = picObj['p:spPr'] as Record<string, unknown> | undefined;
+  const xfrm = spPr?.['a:xfrm'] as Record<string, unknown> | undefined;
+
+  let x = 0;
+  let y = 0;
+  let width = 200;
+  let height = 200;
+
+  if (xfrm) {
+    const off = xfrm['a:off'] as Record<string, unknown> | undefined;
+    const ext = xfrm['a:ext'] as Record<string, unknown> | undefined;
+
+    if (off) {
+      x = Math.round(parseEmu(off['@_x']) * EMU_TO_PX);
+      y = Math.round(parseEmu(off['@_y']) * EMU_TO_PX);
+    }
+    if (ext) {
+      width = Math.round(parseEmu(ext['@_cx']) * EMU_TO_PX);
+      height = Math.round(parseEmu(ext['@_cy']) * EMU_TO_PX);
+    }
+  }
+
+  // Get the image relationship ID from blipFill
+  const blipFill = picObj['p:blipFill'] as Record<string, unknown> | undefined;
+  const blip = blipFill?.['a:blip'] as Record<string, unknown> | undefined;
+  const embedRId = (blip?.['@_r:embed'] as string) ?? '';
+
+  if (!embedRId) {
+    addReportEntry(report, 'approximated', 'image without embed reference');
+    return null;
+  }
+
+  // Resolve the image path through relationships
+  const imageTarget = slideRelMap.get(embedRId);
+  if (!imageTarget) {
+    addReportEntry(report, 'approximated', 'image with unresolved relationship');
+    return null;
+  }
+
+  const imagePath = resolveRelativePath(slidePath, imageTarget);
+  const imageBytes = zipFiles.get(imagePath);
+
+  if (!imageBytes || typeof imageBytes === 'string') {
+    addReportEntry(report, 'approximated', 'image with missing binary data');
+    return null;
+  }
+
+  // Get alt text from nvPicPr
+  const nvPicPr = picObj['p:nvPicPr'] as Record<string, unknown> | undefined;
+  const cNvPr = nvPicPr?.['p:cNvPr'] as Record<string, unknown> | undefined;
+  const alt = (cNvPr?.['@_descr'] as string) ?? undefined;
+
+  // Determine filename from the path
+  const lastSlash = imagePath.lastIndexOf('/');
+  const fileName = lastSlash >= 0 ? imagePath.substring(lastSlash + 1) : imagePath;
+  const mime = mimeFromPath(imagePath);
+
+  const assetId = uuidv4();
+  assetData.set(assetId, imageBytes);
+  assets.push({
+    assetId,
+    kind: 'image',
+    mimeType: mime,
+    fileName,
+    size: imageBytes.byteLength,
+  });
+
+  const nodeId = uuidv4();
+  const imageNode: DeckNode = {
+    id: nodeId,
+    type: 'image_object',
+    x,
+    y,
+    width,
+    height,
+    assetId,
+    alt,
+    parentId: slideId,
+  };
+
+  addReportEntry(report, 'preserved', 'images');
+  return imageNode as ImageObjectNode;
 }
 
 function extractTextFromTxBody(

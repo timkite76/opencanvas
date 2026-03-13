@@ -1,2 +1,2 @@
-export { importPptx } from './import-pptx.js';
-export { exportPptx } from './export-pptx.js';
+export { importPptx, type ImportPptxResult } from './import-pptx.js';
+export { exportPptx, type ExportPptxOptions } from './export-pptx.js';
