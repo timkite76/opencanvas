@@ -7,6 +7,11 @@ import type { FunctionResult } from '@opencanvas/function-sdk';
 import { InMemoryFunctionRegistry } from '@opencanvas/function-registry';
 import { rewriteBlockFunction } from '@opencanvas/function-examples';
 import { generateFormulaFunction, explainFormulaFunction } from '@opencanvas/grid-functions';
+import {
+  createDeckFromOutlineFunction,
+  rewriteSlideFunction,
+  generateSpeakerNotesFunction,
+} from '@opencanvas/deck-functions';
 
 const app = express();
 app.use(cors());
@@ -16,6 +21,9 @@ const registry = new InMemoryFunctionRegistry();
 registry.register(rewriteBlockFunction);
 registry.register(generateFormulaFunction);
 registry.register(explainFormulaFunction);
+registry.register(createDeckFromOutlineFunction);
+registry.register(rewriteSlideFunction);
+registry.register(generateSpeakerNotesFunction);
 
 interface PendingTask {
   taskId: string;

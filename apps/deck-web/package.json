@@ -4,9 +4,30 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "echo 'placeholder'",
-    "dev": "echo 'placeholder'",
-    "typecheck": "echo 'placeholder'",
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opencanvas/core-types": "workspace:*",
+    "@opencanvas/core-model": "workspace:*",
+    "@opencanvas/core-ops": "workspace:*",
+    "@opencanvas/core-format": "workspace:*",
+    "@opencanvas/deck-model": "workspace:*",
+    "@opencanvas/deck-editor": "workspace:*",
+    "@opencanvas/deck-layout": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
   }
 }

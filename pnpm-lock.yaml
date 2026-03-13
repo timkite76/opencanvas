@@ -26,6 +26,9 @@ importers:
       '@opencanvas/core-types':
         specifier: workspace:*
         version: link:../../packages/core-types
+      '@opencanvas/deck-functions':
+        specifier: workspace:*
+        version: link:../../packages/deck-functions
       '@opencanvas/function-examples':
         specifier: workspace:*
         version: link:../../packages/function-examples
@@ -64,7 +67,57 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  apps/deck-web: {}
+  apps/deck-web:
+    dependencies:
+      '@opencanvas/core-format':
+        specifier: workspace:*
+        version: link:../../packages/core-format
+      '@opencanvas/core-model':
+        specifier: workspace:*
+        version: link:../../packages/core-model
+      '@opencanvas/core-ops':
+        specifier: workspace:*
+        version: link:../../packages/core-ops
+      '@opencanvas/core-types':
+        specifier: workspace:*
+        version: link:../../packages/core-types
+      '@opencanvas/deck-editor':
+        specifier: workspace:*
+        version: link:../../packages/deck-editor
+      '@opencanvas/deck-layout':
+        specifier: workspace:*
+        version: link:../../packages/deck-layout
+      '@opencanvas/deck-model':
+        specifier: workspace:*
+        version: link:../../packages/deck-model
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.4(react@19.2.4)
+      uuid:
+        specifier: ^11.0.0
+        version: 11.1.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      '@types/uuid':
+        specifier: ^10.0.0
+        version: 10.0.0
+      '@vitejs/plugin-react':
+        specifier: ^4.3.0
+        version: 4.7.0(vite@6.4.1(@types/node@25.5.0)(tsx@4.21.0))
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.1(@types/node@25.5.0)(tsx@4.21.0)
 
   apps/grid-web:
     dependencies:
@@ -300,17 +353,35 @@ importers:
       '@opencanvas/core-types':
         specifier: workspace:*
         version: link:../core-types
+      uuid:
+        specifier: ^11.0.0
+        version: 11.1.0
     devDependencies:
+      '@types/uuid':
+        specifier: ^10.0.0
+        version: 10.0.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
 
   packages/deck-functions:
     dependencies:
+      '@opencanvas/core-model':
+        specifier: workspace:*
+        version: link:../core-model
       '@opencanvas/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@opencanvas/function-sdk':
+        specifier: workspace:*
+        version: link:../function-sdk
+      uuid:
+        specifier: ^11.0.0
+        version: 11.1.0
     devDependencies:
+      '@types/uuid':
+        specifier: ^10.0.0
+        version: 10.0.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -320,6 +391,9 @@ importers:
       '@opencanvas/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@opencanvas/deck-model':
+        specifier: workspace:*
+        version: link:../deck-model
     devDependencies:
       typescript:
         specifier: ^5.7.0
